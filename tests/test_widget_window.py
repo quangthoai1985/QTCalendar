@@ -152,48 +152,43 @@ def test_tay_nam_co_tooltip_va_con_tro(widget):
 # --------------------------------------------------------------------------- #
 # Chế độ ghim desktop: cửa sổ PHẢI chuyển sang vẽ đục (nếu không sẽ vô hình)
 # --------------------------------------------------------------------------- #
-def test_che_do_ghim_phai_ve_duc(widget, monkeypatch):
-    """Lỗi đã sửa: cửa sổ trong suốt khi thành cửa sổ con bị ghép trên nền đen."""
+def test_che_do_ghim_giu_trong_suot_khong_quang_den(widget, monkeypatch):
+    """Cơ chế Rainmeter Top-Level: Giữ nguyên WA_TranslucentBackground và lề bóng đổ.
+    
+    Điều này loại bỏ hoàn toàn lỗi quầng đen bao quanh 4 góc bo tròn của tờ lịch.
+    """
+    from PySide6.QtCore import Qt
     from qtcalendar.ui import widget_window as ww
+    from qtcalendar.core.theme import alpha_of
 
     monkeypatch.setattr(ww.desktop_pin, "pin", lambda hwnd: True)
     monkeypatch.setattr(ww.desktop_pin, "unpin", lambda hwnd: True)
     monkeypatch.setattr(ww.desktop_pin, "is_pinned", lambda hwnd: True)
-    monkeypatch.setattr(ww.CalendarWidget, "_pin_seems_visible", lambda self: True)
+    monkeypatch.setattr(ww.desktop_pin, "update_z_order", lambda hwnd: None)
 
-    widget._settings.placement = "desktop"
-    widget._settings.opacity = 0.5
-    widget._apply_placement()
+    widget.set_placement("desktop")
+    widget.set_opacity(0.5)
 
-    assert widget._pin_look is True
-    assert not widget.testAttribute(
-        __import__("PySide6.QtCore", fromlist=["Qt"]).Qt.WidgetAttribute.WA_TranslucentBackground
-    )
-    assert widget.layout().contentsMargins().left() == 0
-    # nền giấy phải ĐỤC hoàn toàn (không còn alpha) khi ghim
-    assert len(widget._visual_theme.paper) == 7
+    assert widget.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+    assert widget.layout().contentsMargins().left() == ww.SHADOW_MARGIN
+    # Nền giấy giữ độ mờ 50%, 4 góc bo tròn có alpha ngoài viền trong suốt
+    assert 0.45 < alpha_of(widget._visual_theme.paper) < 0.55
 
 
 def test_bo_ghim_tro_lai_trong_suot(widget, monkeypatch):
     from PySide6.QtCore import Qt
-
     from qtcalendar.ui import widget_window as ww
+    from qtcalendar.core.theme import alpha_of
 
     monkeypatch.setattr(ww.desktop_pin, "pin", lambda hwnd: True)
     monkeypatch.setattr(ww.desktop_pin, "unpin", lambda hwnd: True)
     monkeypatch.setattr(ww.desktop_pin, "is_pinned", lambda hwnd: True)
-    monkeypatch.setattr(ww.CalendarWidget, "_pin_seems_visible", lambda self: True)
+    monkeypatch.setattr(ww.desktop_pin, "update_z_order", lambda hwnd: None)
 
-    widget._settings.opacity = 0.5
-    widget._settings.placement = "desktop"
-    widget._apply_placement()
-    widget._settings.placement = "floating"
-    widget._apply_placement()
+    widget.set_opacity(0.5)
+    widget.set_placement("desktop")
+    widget.set_placement("floating")
 
-    assert widget._pin_look is False
     assert widget.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-    assert widget.layout().contentsMargins().left() > 0
-    # nền giấy trong suốt trở lại đúng độ mờ 50 %
-    from qtcalendar.core.theme import alpha_of
-
+    assert widget.layout().contentsMargins().left() == ww.SHADOW_MARGIN
     assert 0.45 < alpha_of(widget._visual_theme.paper) < 0.55

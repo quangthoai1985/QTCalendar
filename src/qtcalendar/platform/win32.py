@@ -169,6 +169,7 @@ SWP_FRAMECHANGED = 0x0020
 SWP_SHOWWINDOW = 0x0040
 SWP_HIDEWINDOW = 0x0080
 SWP_NOOWNERZORDER = 0x0200
+SWP_NOSENDCHANGING = 0x0400
 
 WM_WINDOWPOSCHANGING = 0x0046
 WM_WINDOWPOSCHANGED = 0x0047
@@ -796,7 +797,7 @@ def screen_rect() -> tuple[int, int, int, int]:
 
 def get_foreground_window() -> int:
     """Lấy HWND của cửa sổ đang active (foreground). Trả về 0 nếu thất bại."""
-    user32 = _user32()
+
     if user32 is None:
         return 0
     try:
@@ -805,3 +806,58 @@ def get_foreground_window() -> int:
         return int(user32.GetForegroundWindow() or 0)
     except Exception:
         return 0
+
+
+def get_shell_window() -> int:
+    """Lấy HWND của cửa sổ Shell chính (GetShellWindow)."""
+    if user32 is None:
+        return 0
+    try:
+        user32.GetShellWindow.argtypes = []
+        user32.GetShellWindow.restype = wintypes.HWND
+        return int(user32.GetShellWindow() or 0)
+    except Exception:
+        return 0
+
+
+def get_ancestor(hwnd: int, flags: int = 1) -> int:
+    """Lấy ancestor của hwnd (GA_PARENT = 1, GA_ROOT = 2)."""
+    if user32 is None or not hwnd:
+        return 0
+    try:
+        user32.GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
+        user32.GetAncestor.restype = wintypes.HWND
+        return int(user32.GetAncestor(wintypes.HWND(hwnd), flags) or 0)
+    except Exception:
+        return 0
+
+
+def get_window_thread_process_id(hwnd: int) -> tuple[int, int]:
+    """Trả về (thread_id, process_id) của cửa sổ."""
+    if user32 is None or not hwnd:
+        return (0, 0)
+    try:
+        proc_id = wintypes.DWORD(0)
+        user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+        user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+        tid = user32.GetWindowThreadProcessId(wintypes.HWND(hwnd), ctypes.byref(proc_id))
+        return (int(tid), int(proc_id.value))
+    except Exception:
+        return (0, 0)
+
+
+def is_win11_24h2_or_newer() -> bool:
+    """Kiểm tra Windows 11 24H2+ (hệ thống tái cấu trúc Progman/SHELLDLL_DefView)."""
+    if kernel32 is None:
+        return False
+    try:
+        kernel32.GetModuleHandleW.argtypes = [wintypes.LPCWSTR]
+        kernel32.GetModuleHandleW.restype = wintypes.HMODULE
+        kernel32.GetProcAddress.argtypes = [wintypes.HMODULE, ctypes.c_char_p]
+        kernel32.GetProcAddress.restype = ctypes.c_void_p
+        h_u32 = kernel32.GetModuleHandleW("user32")
+        if not h_u32:
+            return False
+        return bool(kernel32.GetProcAddress(h_u32, b"GetCurrentMonitorTopologyId"))
+    except Exception:
+        return False

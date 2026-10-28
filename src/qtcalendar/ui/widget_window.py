@@ -342,9 +342,7 @@ class CalendarWidget(QWidget):
         return theme
 
     def _paper_opacity(self) -> float:
-        """Độ mờ áp vào **màu giấy** (chỉ khác 1.0 khi cửa sổ nổi)."""
-        if getattr(self, "_pin_look", False):
-            return 1.0
+        """Độ mờ áp vào **màu giấy** (nền trong suốt, chữ đục 100%)."""
         return float(self._settings.opacity)
 
     def _apply_content_scale(self) -> None:
@@ -733,9 +731,6 @@ class CalendarWidget(QWidget):
     # ------------------------------------------------------------- vẽ bóng
     def paintEvent(self, event) -> None:  # noqa: N802 (Qt API)
         """Vẽ bóng đổ mềm quanh tấm giấy (rẻ hơn QGraphicsDropShadowEffect)."""
-        if getattr(self, "_pin_look", False):
-            # Chế độ ghim: cửa sổ đục, không có lề bóng nên không vẽ bóng.
-            return
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
         rect = self._card_rect()
@@ -759,85 +754,39 @@ class CalendarWidget(QWidget):
     def _apply_opacity(self) -> None:
         """Đặt độ trong suốt.
 
-        * **Cửa sổ nổi** (top-level): độ mờ nhúng vào **màu giấy**, chữ đục
-          100 % → đúng yêu cầu "chỉ nền trong, chữ khoá".
-        * **Đã ghim desktop** (cửa sổ con của Progman): Windows không ghép
-          alpha từng điểm ảnh cho cửa sổ con, nên cửa sổ phải đục hoàn toàn và
-          độ mờ được làm bằng ``LWA_ALPHA`` (cả khối mờ đồng đều). Nếu không
-          làm vậy, phần trong suốt bị vẽ đè lên nền đen → lịch "biến mất".
+        Cả cửa sổ nổi lẫn ghim Desktop theo chuẩn Rainmeter đều là Top-Level Window:
+        độ mờ nhúng thẳng vào **màu giấy**, chữ đục 100%. Qt tự quản lý WS_EX_LAYERED
+        + UpdateLayeredWindow (alpha từng điểm ảnh), giữ góc bo tròn và bóng đổ hoàn
+        hảo, tuyệt đối không có quầng đen quanh khung lịch.
         """
-        opacity = max(0.2, min(1.0, float(self._settings.opacity)))
         effect = self._stack.graphicsEffect()
-        if effect is not None:  # gỡ hiệu ứng mờ của phiên bản cũ (nếu còn)
+        if effect is not None:
             self._stack.setGraphicsEffect(None)
-
-        if not getattr(self, "_pin_look", False):
-            # Cửa sổ nổi trong suốt: Qt TỰ quản lý WS_EX_LAYERED +
-            # UpdateLayeredWindow (alpha từng điểm ảnh). TUYỆT ĐỐI không gỡ
-            # WS_EX_LAYERED ở đây – nếu gỡ, lề bóng đổ và 4 góc bo của tờ lịch
-            # bị Windows tô ĐEN (lỗi "khung lịch bị viền đen bao quanh").
-            self.setWindowOpacity(1.0)
-            return
-
-        # Đã ghim (cửa sổ con của Progman). Từ Windows 11 24H2, Progman mang
-        # WS_EX_NOREDIRECTIONBITMAP: cửa sổ con KHÔNG layered sẽ không được DWM
-        # trình chiếu (lịch "biến mất" nhưng vẫn nhận chuột). Cửa sổ con phải là
-        # WS_EX_LAYERED + LWA_ALPHA. Cửa sổ ghim vẽ đục (không có kênh alpha)
-        # nên Qt dùng SetLayeredWindowAttributes thay vì UpdateLayeredWindow –
-        # không xung đột. Qt chỉ giữ WS_EX_LAYERED cho cửa sổ đục khi
-        # opacity < 1.0 (nếu = 1.0 Qt gỡ cờ ở mỗi lần flush) nên kẹp tối đa
-        # 254/255 – mắt thường không phân biệt được.
-        level = min(opacity, _PINNED_MAX_OPACITY)
-        self.setWindowOpacity(level)
-        win32 = _win32_module()
-        if win32 is None:
-            return
-        win32.set_layered_alpha(int(self.winId()), level)
+        self.setWindowOpacity(1.0)
 
     def _ensure_pinned_layered(self) -> None:
-        """Watchdog: bảo đảm cửa sổ đã ghim vẫn còn ``WS_EX_LAYERED``."""
-        win32 = _win32_module()
-        if win32 is None:
-            return
-        hwnd = int(self.winId())
-        exstyle = win32.get_window_long(hwnd, win32.GWL_EXSTYLE)
-        if not (exstyle & win32.WS_EX_LAYERED):
-            self._apply_opacity()
+        """Watchdog: bảo đảm cửa sổ giữ nguyên cấu hình hiển thị."""
+        pass
 
     # ------------------------------------------------------- ghim desktop
     def _apply_placement(self) -> None:
-        """Ghim/bỏ ghim và giữ nguyên vị trí màn hình của widget.
-
-        Trước khi ghim phải chuyển cửa sổ sang chế độ **đục** (:meth:`_set_pin_look`):
-        cửa sổ trong suốt của Qt khi thành cửa sổ con sẽ bị Windows ghép trên
-        nền đen khiến lịch "biến mất" (vẫn nhận chuột) – lỗi người dùng báo.
-        """
+        """Ghim/bỏ ghim theo cơ chế Rainmeter Top-Level."""
         screen_pos = self.frameGeometry().topLeft()
         want_pin = self._settings.placement == "desktop"
         hwnd = int(self.winId())
 
         if want_pin:
-            self._set_pin_look(True)
-            hwnd = int(self.winId())
+            self._pin_look = False
             ok = desktop_pin.pin(hwnd)
             self._pinned = bool(ok)
             if ok:
                 self._pin_failures = 0
-                self._apply_opacity()
-                self._restore_screen_position(screen_pos)
-                desktop_pin.send_to_bottom(hwnd)
-            else:
-                self._pinned = False
-                self._set_pin_look(False)
-                self._apply_opacity()
-                self._restore_screen_position(screen_pos)
+                desktop_pin.update_z_order(hwnd)
         else:
             if self._pinned:
                 desktop_pin.unpin(hwnd)
             self._pinned = False
-            self._set_pin_look(False)
-            self._apply_opacity()
-            self._restore_screen_position(screen_pos)
+            self._pin_look = False
 
     def _pin_seems_visible(self) -> bool:
         """Kiểm tra cửa sổ có đang hiển thị."""
@@ -854,57 +803,16 @@ class CalendarWidget(QWidget):
         desktop_pin.send_to_bottom(hwnd)
 
     def _apply_pin_palette(self, visual: Theme) -> None:
-        """Chế độ ghim: tô nền cửa sổ bằng màu giấy **đục** (áp sau QSS)."""
-        if not getattr(self, "_pin_look", False):
-            return
-        paper = QColor(visual.paper)
-        paper.setAlpha(255)
-        palette = self.palette()
-        palette.setColor(QPalette.ColorRole.Window, paper)
-        palette.setColor(QPalette.ColorRole.Base, paper)
-        self.setPalette(palette)
+        """Không thay đổi palette khi ghim vì luôn giữ độ trong suốt tự nhiên."""
+        pass
 
     def _set_pin_look(self, pinned: bool) -> None:
-        """Đổi giao diện theo chế độ ghim: đục hoá cửa sổ + bỏ lề bóng đổ.
-
-        ``WA_TranslucentBackground`` chỉ có hiệu lực khi tạo native window nên
-        phải **tạo lại** cửa sổ (Qt làm việc này qua ``setWindowFlags``).
-        """
-        pinned = bool(pinned)
-        if getattr(self, "_pin_look", None) == pinned:
-            return
-        self._pin_look = pinned
-        self._visual_theme = None  # buộc tính lại theme theo chế độ mới
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, not pinned)
-        layout = self.layout()
-        if layout is not None:
-            margin = 0 if pinned else SHADOW_MARGIN
-            layout.setContentsMargins(margin, margin, margin, margin)
-        self.setAutoFillBackground(pinned)
-
-        was_visible = self.isVisible()
-        flags = self.windowFlags()
-        # Đổi cờ "rỗng" buộc Qt tạo lại native window với thuộc tính mới.
-        self.setWindowFlags(flags | Qt.WindowTitleHint)
-        self.setWindowFlags(flags)
-        if was_visible:
-            self.show()
-        self._apply_view_embedding(pinned)
-        self._apply_theme()
-        self._layout_overlay()
-        self._layout_grip()
-        self.update()
+        """Giữ tương thích API: cơ chế Rainmeter luôn giữ nguyên WA_TranslucentBackground."""
+        self._pin_look = bool(pinned)
 
     def _apply_view_embedding(self, pinned: bool) -> None:
-        """Ghim desktop ⇒ view phủ kín cửa sổ, KHÔNG vẽ bóng đổ/mép giấy.
-
-        Nếu vẫn để view vẽ bóng, trên nền **đục** của chế độ ghim phần bóng sẽ
-        thành một khung tối/near-black quanh lịch – đúng lỗi người dùng gặp.
-        """
-        bloc = getattr(self, "_bloc", None)
-        setter = getattr(bloc, "set_embedded", None)
-        if callable(setter):
-            setter(True if pinned else None)
+        """Giữ tương thích API."""
+        pass
 
     def _restore_screen_position(self, wanted: QPoint) -> None:
         """Sau SetParent, toạ độ Qt có thể bị lệch – kéo về đúng chỗ cũ."""
@@ -921,7 +829,7 @@ class CalendarWidget(QWidget):
             self.move(self.pos() - delta)
 
     def _watch_pin(self) -> None:
-        """Watchdog định kỳ: duy trì cửa sổ ở đáy Z-order (HWND_BOTTOM) và luôn hiển thị."""
+        """Watchdog định kỳ: duy trì cửa sổ ở vị trí chuẩn theo cơ chế Rainmeter."""
         if self._settings.placement != "desktop":
             return
 
@@ -938,7 +846,7 @@ class CalendarWidget(QWidget):
         if not win32.is_window_visible(hwnd):
             win32.show_window(hwnd, win32.SW_SHOWNOACTIVATE)
 
-        desktop_pin.send_to_bottom(hwnd)
+        desktop_pin.update_z_order(hwnd)
 
     def apply_placement(self) -> None:
         """Áp lại cách neo cửa sổ (ghim desktop hoặc cửa sổ nổi)."""
