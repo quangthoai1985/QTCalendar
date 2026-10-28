@@ -130,6 +130,7 @@ class DayInfo:
     auspicious_hours: tuple[AuspiciousHour, ...] = ()
     is_auspicious_day: bool = False
     holiday: str | None = None
+    lunar_month_char: str = "Đ"  #: 'Đ' = Đủ (30 ngày), 'T' = Thiếu (29 ngày)
 
     # ---- tiện ích dẫn xuất -------------------------------------------------
 
@@ -146,6 +147,44 @@ class DayInfo:
     @property
     def is_sunday(self) -> bool:
         return self.weekday_index == 6
+
+    @property
+    def weekday_en(self) -> str:
+        """``"MONDAY"`` … ``"SUNDAY"``."""
+        names = ("MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY")
+        return names[self.weekday_index]
+
+    @property
+    def solar_month_en(self) -> str:
+        """``"JANUARY"`` … ``"DECEMBER"``."""
+        names = (
+            "JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE",
+            "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"
+        )
+        return names[self.solar.month - 1]
+
+    @property
+    def solar_month_vn(self) -> str:
+        """``"THÁNG MỘT"`` … ``"THÁNG MƯỜI HAI"``."""
+        names = (
+            "THÁNG MỘT", "THÁNG HAI", "THÁNG BA", "THÁNG TƯ", "THÁNG NĂM", "THÁNG SÁU",
+            "THÁNG BẢY", "THÁNG TÁM", "THÁNG CHÍN", "THÁNG MƯỜI", "THÁNG MƯỜI MỘT", "THÁNG MƯỜI HAI"
+        )
+        return names[self.solar.month - 1]
+
+    @property
+    def day_of_year(self) -> int:
+        return self.solar.timetuple().tm_yday
+
+    @property
+    def week_of_year(self) -> int:
+        return self.solar.isocalendar()[1]
+
+    @property
+    def hour_ty_can_chi(self) -> CanChi:
+        from .canchi_constants import CAN
+        can_idx = CAN.index(self.day_can_chi.can)
+        return CanChi(CAN[(2 * can_idx) % 10], "Tý")
 
     @property
     def is_month_start(self) -> bool:

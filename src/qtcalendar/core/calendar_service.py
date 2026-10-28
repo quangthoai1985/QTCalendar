@@ -72,6 +72,11 @@ def get_day_info(day: date, engine: str = DEFAULT_ENGINE) -> DayInfo:
     eng = get_engine(engine)
     lunar_date = eng.solar_to_lunar(day.day, day.month, day.year)
     dcc = day_can_chi(day)
+    try:
+        month_days = eng.lunar_month_days(lunar_date.year, lunar_date.month, lunar_date.leap)
+        lunar_char = "Đ" if month_days >= 30 else "T"
+    except Exception:
+        lunar_char = "Đ"
     return DayInfo(
         solar=day,
         lunar=lunar_date,
@@ -84,6 +89,7 @@ def get_day_info(day: date, engine: str = DEFAULT_ENGINE) -> DayInfo:
         auspicious_hours=auspicious_hours(day),
         is_auspicious_day=is_auspicious_day(lunar_date.month, dcc),
         holiday=holiday_for(day, lunar_date),
+        lunar_month_char=lunar_char,
     )
 
 

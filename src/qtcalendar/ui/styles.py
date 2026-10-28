@@ -235,6 +235,51 @@ QLabel#AuspiciousDayLabel {{
     border: 1px solid {rgba(t.accent_2, 0.80)};
     border-radius: {px(t.radius * 0.62, scale)}px;
 }}
+/* Bố cục chân lịch 3 cột truyền thống */
+QLabel#Col1MonthEn {{
+    color: {t.accent};
+    background: transparent;
+}}
+QLabel#Col1MonthVn {{
+    color: {t.ink};
+    background: transparent;
+}}
+QLabel#Col1Zodiac {{
+    color: {t.accent_2};
+    background: transparent;
+}}
+QLabel#Col1HoursTitle {{
+    color: {t.ink_faint};
+    background: transparent;
+}}
+QLabel#Col1Hours {{
+    color: {t.ink_soft};
+    background: transparent;
+}}
+QLabel#Col1Footer {{
+    color: {t.ink_faint};
+    background: transparent;
+}}
+QLabel#Col2Weekday {{
+    color: {t.accent};
+    background: transparent;
+}}
+QLabel#Col2WeekdayEn {{
+    color: {t.ink_soft};
+    background: transparent;
+}}
+QLabel#Col3LunarMonth {{
+    color: {t.accent};
+    background: transparent;
+}}
+QLabel#Col3CanChi {{
+    color: {t.ink};
+    background: transparent;
+}}
+QLabel#Col3TietKhi {{
+    color: {t.accent_2};
+    background: transparent;
+}}
 QFrame#Divider {{
     background: transparent;
     border: none;
