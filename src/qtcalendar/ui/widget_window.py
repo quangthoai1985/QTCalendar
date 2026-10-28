@@ -814,10 +814,10 @@ class CalendarWidget(QWidget):
         """
         screen_pos = self.frameGeometry().topLeft()
         want_pin = self._settings.placement == "desktop"
+        hwnd = int(self.winId())
 
         if want_pin:
             self._set_pin_look(True)
-            self._apply_opacity()  # WS_EX_LAYERED phải có trước khi thành cửa sổ con
             hwnd = int(self.winId())
             ok = desktop_pin.pin(hwnd)
             self._pinned = bool(ok)
@@ -825,16 +825,13 @@ class CalendarWidget(QWidget):
                 self._pin_failures = 0
                 self._apply_opacity()
                 self._restore_screen_position(screen_pos)
-                self._ensure_pin_visible(screen_pos)
+                desktop_pin.send_to_bottom(hwnd)
             else:
-                # Không ghim được (UIPI, Explorer lạ…): trả lại giao diện nổi
-                self._pin_failures = getattr(self, "_pin_failures", 0) + 1
                 self._pinned = False
                 self._set_pin_look(False)
                 self._apply_opacity()
                 self._restore_screen_position(screen_pos)
         else:
-            hwnd = int(self.winId())
             if self._pinned:
                 desktop_pin.unpin(hwnd)
             self._pinned = False
@@ -843,73 +840,18 @@ class CalendarWidget(QWidget):
             self._restore_screen_position(screen_pos)
 
     def _pin_seems_visible(self) -> bool:
-        """Kiểm tra cửa sổ đã ghim có đang **bị lớp desktop che** hay không.
-
-        Chỉ xét z-order giữa các cửa sổ con của cùng host (Progman): nếu phía
-        trên ta có ``SHELLDLL_DefView``/``WorkerW`` đang hiển thị thì lịch bị
-        lớp hình nền/icon che ⇒ cần nâng lên. Cách này **không bị nhầm** khi
-        cửa sổ của ứng dụng khác che lên desktop (chúng không cùng cha).
-        """
+        """Kiểm tra cửa sổ có đang hiển thị."""
         win32 = _win32_module()
         if win32 is None:
             return True
         hwnd = int(self.winId())
-        if not win32.is_window_visible(hwnd):
-            return False
-        if not win32.get_parent(hwnd):
-            return False
-        desktop_classes = {"SHELLDLL_DefView", "WorkerW", "Progman", "SysListView32"}
-        previous = win32.get_window(hwnd, win32.GW_HWNDPREV)
-        guard = 0
-        while previous and guard < 64:
-            if win32.is_window_visible(previous):
-                if (win32.get_class_name(previous) or "") in desktop_classes:
-                    return False
-            previous = win32.get_window(previous, win32.GW_HWNDPREV)
-            guard += 1
-        return True
+        return win32.is_window_visible(hwnd)
 
     def _ensure_pin_visible(self, screen_pos: QPoint) -> None:
-        """Nếu vừa ghim mà không thấy lịch: nâng z-order rồi thử lại; nếu vẫn
-        không thấy thì **lùi về cửa sổ nổi** để người dùng không bị mất lịch."""
-        from ..platform import win32
-
-        QApplication.processEvents()
-        if self._pin_seems_visible():
-            return
-
+        """Đảm bảo cửa sổ ghim hiển thị và ở đáy z-order."""
+        from ..platform import desktop_pin
         hwnd = int(self.winId())
-        rect = win32.get_window_rect(hwnd) or (screen_pos.x(), screen_pos.y(), 0, 0)
-        for _ in range(2):
-            left, top, right, bottom = (
-                rect[0], rect[1], rect[2] - rect[0], rect[3] - rect[1]
-            )
-            win32.set_window_pos(
-                hwnd, win32.HWND_TOP, left, top, right, bottom,
-                win32.SWP_NOACTIVATE | win32.SWP_SHOWWINDOW | win32.SWP_NOMOVE
-                | win32.SWP_NOSIZE,
-            )
-            win32.show_window(hwnd, win32.SW_SHOWNOACTIVATE)
-            self.repaint()
-            QApplication.processEvents()
-            time.sleep(0.12)
-            QApplication.processEvents()
-            if self._pin_seems_visible():
-                return
-
-        # Không nhìn thấy được ⇒ trả widget về cửa sổ nổi (an toàn cho người dùng)
-        import logging
-
-        logging.getLogger("qtcalendar").warning(
-            "Ghim desktop không hiển thị được – tự chuyển sang cửa sổ nổi"
-        )
-        desktop_pin.unpin(hwnd)
-        self._pinned = False
-        self._settings.placement = "floating"
-        self._set_pin_look(False)
-        self._apply_opacity()
-        self._restore_screen_position(screen_pos)
-        self.settings_changed.emit()
+        desktop_pin.send_to_bottom(hwnd)
 
     def _apply_pin_palette(self, visual: Theme) -> None:
         """Chế độ ghim: tô nền cửa sổ bằng màu giấy **đục** (áp sau QSS)."""
@@ -979,78 +921,46 @@ class CalendarWidget(QWidget):
             self.move(self.pos() - delta)
 
     def _watch_pin(self) -> None:
-        """Ghim lại nếu cửa sổ bị mất ghim (đổi window flags, Explorer restart).
-
-        Ba tình huống được phân biệt:
-
-        1. HWND còn sống nhưng style/parent bị mất (ví dụ đổi window flags)
-           ⇒ ghim lại là đủ.
-        2. HWND đã bị huỷ (Explorer restart, Progman bị tạo lại) ⇒ phải tạo
-           lại native window bằng ``hide()/show()`` rồi lấy ``winId()`` mới.
-        3. Ghim thất bại liên tục (ví dụ môi trường chặn ``SetParent``) ⇒
-           ngừng thử sau 3 lần để không làm rác log mỗi 2 giây.
-        """
+        """Watchdog định kỳ: duy trì cửa sổ ở đáy Z-order (HWND_BOTTOM) và luôn hiển thị."""
         if self._settings.placement != "desktop":
             return
-        if getattr(self, "_pin_watchdog_stopped", False):
-            return
 
-        from ..platform import win32
+        from ..platform import desktop_pin, win32
 
         hwnd = int(self.winId())
         if not win32.is_window(hwnd):
-            # HWND chết theo Explorer → xin Qt cấp lại native window.
-            self.hide()
-            self.show()
-            QApplication.processEvents()
-            hwnd = int(self.winId())
-            if not win32.is_window(hwnd):
-                return
-
-        if desktop_pin.is_pinned(hwnd):
-            # Mất WS_EX_LAYERED ⇒ Windows 11 24H2+ không trình chiếu cửa sổ con.
-            self._ensure_pinned_layered()
-            # Đang ghim: Explorer có thể nâng lớp hình nền/icon lên che mất lịch.
-            # Thỉnh thoảng kiểm tra rồi nâng cửa sổ lên trên cùng của Progman.
-            if not self._pin_seems_visible():
-                from ..platform import win32
-
-                rect = win32.get_window_rect(hwnd)
-                if rect:
-                    left, top = rect[0], rect[1]
-                    width, height = rect[2] - rect[0], rect[3] - rect[1]
-                    win32.set_window_pos(
-                        hwnd, win32.HWND_TOP, left, top, width, height,
-                        win32.SWP_NOACTIVATE | win32.SWP_SHOWWINDOW,
-                    )
-                    win32.show_window(hwnd, win32.SW_SHOWNOACTIVATE)
-                    self.repaint()
             return
 
-        screen_pos = self.frameGeometry().topLeft()
-        if desktop_pin.pin(hwnd):
+        if not desktop_pin.is_pinned(hwnd):
+            desktop_pin.pin(hwnd)
             self._pinned = True
-            self._pin_failures = 0
-            self._restore_screen_position(screen_pos)
-            self._apply_opacity()
-            return
 
-        self._pin_failures = getattr(self, "_pin_failures", 0) + 1
-        if self._pin_failures >= 3:
-            self._pin_watchdog_stopped = True
-            self._pinned = False
-            self._apply_opacity()
-            import logging
+        if not win32.is_window_visible(hwnd):
+            win32.show_window(hwnd, win32.SW_SHOWNOACTIVATE)
 
-            logging.getLogger("qtcalendar").warning(
-                "Không ghim được cửa sổ xuống desktop sau 3 lần thử – "
-                "tiếp tục chạy ở chế độ cửa sổ nổi. Nguyên nhân thường gặp: "
-                "ứng dụng chạy ở integrity level thấp hơn Explorer (sandbox)."
-            )
+        desktop_pin.send_to_bottom(hwnd)
 
     def apply_placement(self) -> None:
         """Áp lại cách neo cửa sổ (ghim desktop hoặc cửa sổ nổi)."""
         self._apply_placement()
+
+    def nativeEvent(self, event_type, message):  # noqa: N802 (Qt API)
+        """Can thiệp thông điệp Win32 để chống bị ẩn khi bấm Win + D (Rainmeter style)."""
+        if event_type == b"windows_generic_MSG" and getattr(self, "_pinned", False):
+            from ctypes import wintypes
+            from ..platform import desktop_pin, win32
+
+            try:
+                msg = wintypes.MSG.from_address(int(message))
+                if msg.message == win32.WM_WINDOWPOSCHANGING:
+                    if desktop_pin.handle_windowposchanging(msg.lParam):
+                        return True, 0
+                elif msg.message == win32.WM_SYSCOMMAND:
+                    if (msg.wParam & 0xFFF0) == win32.SC_MINIMIZE:
+                        return True, 0
+            except Exception:
+                pass
+        return super().nativeEvent(event_type, message)
 
     # -------------------------------------------------------------- kéo thả
     def mousePressEvent(self, event) -> None:  # noqa: N802 (Qt API)

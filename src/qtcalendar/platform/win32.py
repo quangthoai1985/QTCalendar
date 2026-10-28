@@ -83,9 +83,16 @@ __all__ = [
     "SW_SHOW",
     "SW_SHOWNOACTIVATE",
     "HWND_NOTOPMOST",
+    "HWND_BOTTOM",
     "SMTO_ABORTIFHUNG",
+    "WM_WINDOWPOSCHANGING",
+    "WM_WINDOWPOSCHANGED",
+    "WM_SYSCOMMAND",
+    "SC_MINIMIZE",
+    "WINDOWPOS",
     # hàm
     "get_hwnd",
+    "get_foreground_window",
     "find_window",
     "find_window_ex",
     "enum_windows",
@@ -162,6 +169,23 @@ SWP_FRAMECHANGED = 0x0020
 SWP_SHOWWINDOW = 0x0040
 SWP_HIDEWINDOW = 0x0080
 SWP_NOOWNERZORDER = 0x0200
+
+WM_WINDOWPOSCHANGING = 0x0046
+WM_WINDOWPOSCHANGED = 0x0047
+WM_SYSCOMMAND = 0x0112
+SC_MINIMIZE = 0xF020
+
+
+class WINDOWPOS(ctypes.Structure):
+    _fields_ = [
+        ("hwnd", wintypes.HWND),
+        ("hwndInsertAfter", wintypes.HWND),
+        ("x", ctypes.c_int),
+        ("y", ctypes.c_int),
+        ("cx", ctypes.c_int),
+        ("cy", ctypes.c_int),
+        ("flags", wintypes.UINT),
+    ]
 
 SMTO_NORMAL = 0x0000
 SMTO_BLOCK = 0x0001
@@ -768,3 +792,16 @@ def screen_rect() -> tuple[int, int, int, int]:
     except Exception:
         log.debug("screen_rect thất bại", exc_info=True)
         return (0, 0, 0, 0)
+
+
+def get_foreground_window() -> int:
+    """Lấy HWND của cửa sổ đang active (foreground). Trả về 0 nếu thất bại."""
+    user32 = _user32()
+    if user32 is None:
+        return 0
+    try:
+        user32.GetForegroundWindow.argtypes = []
+        user32.GetForegroundWindow.restype = wintypes.HWND
+        return int(user32.GetForegroundWindow() or 0)
+    except Exception:
+        return 0
