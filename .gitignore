@@ -1,0 +1,32 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.build/
+dist/
+build/
+*.spec
+.pytest_cache/
+
+# ---- Môi trường ảo ----
+.venv/
+venv/
+env/
+
+# ---- Dữ liệu sinh ra khi chạy / kiểm thử ----
+settings.json
+settings.corrupt-*.json
+*.lock
+preview/
+*.log
+
+# ---- Superpowers / AI cache ----
+.superpowers/
+
+# ---- IDE / OS ----
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+.DS_Store

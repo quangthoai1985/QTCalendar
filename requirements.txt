@@ -1,0 +1,10 @@
+# QT Calendar – phụ thuộc runtime
+# ---------------------------------------------------------------------------
+# Chỉ cần duy nhất PySide6 để chạy ứng dụng. Máy phát triển hiện dùng
+# PySide6-Essentials 6.11.2 + Python 3.14 (không cần QtWebEngine/QML-extra).
+PySide6-Essentials>=6.5,<7
+
+# Tuỳ chọn (không cần để chạy):
+#   pillow        – chỉ dùng cho scripts/make_icon.py (sinh icon)
+#   pytest        – chỉ dùng cho tests/
+#   pyinstaller   – chỉ dùng khi đóng gói .exe (xem docs/05-dong-goi.md)
