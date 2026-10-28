@@ -189,6 +189,7 @@ class CalendarWidget(QWidget):
     settings_changed = Signal()
     settings_requested = Signal()
     quit_requested = Signal()
+    update_check_requested = Signal()
     hide_requested = Signal()
 
     # ------------------------------------------------------------------ init
@@ -1241,6 +1242,8 @@ class CalendarWidget(QWidget):
         act_size.triggered.connect(self.reset_size)
         act_settings = menu.addAction("Cài đặt…")
         act_settings.triggered.connect(self.settings_requested.emit)
+        act_update = menu.addAction("Kiểm tra bản cập nhật…")
+        act_update.triggered.connect(self.update_check_requested.emit)
         menu.addSeparator()
         act_quit = menu.addAction("Thoát")
         act_quit.triggered.connect(self.quit_requested.emit)

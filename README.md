@@ -1,14 +1,22 @@
-# QT Calendar — lịch bloc Dương – Âm cho Windows
+# QT Calendar — Lịch Bloc Dương – Âm cho Windows
 
 **Desktop widget lịch Việt** mang dáng tờ lịch bloc treo tường: giấy ngà, mực
-đậm, đỏ lịch bloc. Chạy trên Windows 10/11, **ghim sát mặt bàn Desktop**
-(không bị ẩn khi nhấn `Win + D`), có icon khay hệ thống, khởi động cùng
-Windows, kéo thả tự do và lưu cấu hình vào `settings.json`.
+đậm, đỏ lịch bloc truyền thống kết hợp nét hiện đại. Chạy trên Windows 10/11, **ghim sát mặt bàn Desktop**
+(không bị ẩn khi nhấn Win + D), có icon khay hệ thống, khởi động cùng
+Windows, kéo thả tự do, tự động phát hiện bản mới và cập nhật ngầm.
 
 ![Lịch bloc](preview/app_final_bloc.png)
 
 ---
 
+## Tải về & Cài đặt
+
+Tải bản phát hành mới nhất từ trang [GitHub Releases](https://github.com/quangthoai1985/QTCalendar/releases):
+
+* **Bộ cài đặt Windows (QTCalendar_Setup_v1.0.0.exe)**: Bộ cài Inno Setup chuẩn Microsoft, cài đặt tại %LOCALAPPDATA%\Programs\QT Calendar (không yêu cầu quyền Admin UAC), tự tạo shortcut Desktop & Start Menu, đăng ký Registry trong **Installed apps** / **Apps & features** để gỡ cài đặt sạch sẽ, hỗ trợ lệnh chạy nhanh QTCalendar trong hộp thoại Run (Win + R).
+* **Bản cập nhật ngầm (QTCalendar_Update.zip)**: Dành riêng cho cơ chế tự động cập nhật ngầm của ứng dụng.
+
+---
 ## Tính năng
 
 | Nhóm | Chi tiết |
@@ -20,7 +28,8 @@ Windows, kéo thả tự do và lưu cấu hình vào `settings.json`.
 | **Ghim Desktop** | `SetParent(Progman)` → sống sót qua `Win + D`, không có trong Alt+Tab; khi ghim widget tự chuyển sang **vẽ đục, phủ kín khung** (không bóng đổ) nên luôn hiện rõ; app tự kiểm tra bị lớp desktop che và nâng lên, hoặc tự lùi về cửa sổ nổi nếu không thể hiển thị |
 | **Độ mờ nền** | 20 % – 100 %, **chỉ nền giấy trong đi – chữ luôn đặc 100 %** nên vẫn đọc rõ trên mọi hình nền (ở chế độ ghim Desktop, widget luôn đục để bảo đảm nhìn thấy – xem Hạn chế #1) |
 | **Màu nền** | 10 màu gợi ý + chọn màu tuỳ ý (bảng màu Windows) + "Theo giao diện"; nền tối tự chuyển chữ sang màu sáng để không mất chữ |
-| **Khay hệ thống** | Menu đầy đủ: hiện/ẩn, chế độ xem, độ mờ, ghim, luôn nổi, khoá vị trí, khởi động cùng Windows, về hôm nay, đặt lại vị trí, cài đặt, thoát |
+| **Khay hệ thống** | Menu đầy đủ: hiện/ẩn, chế độ xem, độ mờ, ghim, luôn nổi, khoá vị trí, khởi động cùng Windows, về hôm nay, đặt lại vị trí, kiểm tra bản cập nhật, cài đặt, thoát |
+| **Tự động cập nhật** | Tự động kiểm tra bản mới từ GitHub Releases qua API, tải bản cập nhật ngầm an toàn có kiểm tra mã SHA-256, tự động hoán đổi tệp khi ứng dụng thoát hoặc khởi động lại ngay |
 | **Khởi động cùng Windows** | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` (không cần quyền admin) |
 | **Cấu hình** | `settings.json` ghi nguyên tử; 26 trường; hỏng tệp thì tự sao lưu và về mặc định |
 | **Giao diện** | 4 bảng màu: Giấy đỏ, Xanh ngọc, Hoàng hôn, Đêm sao; tỉ lệ nội dung 75 – 200 % |
@@ -100,7 +109,7 @@ QTCalendar/
 │   │   ├── settings_dialog.py  #   hộp thoại cài đặt
 │   │   └── styles.py           #   sinh QSS từ theme
 │   └── data/quotes.json        # 439 câu ca dao/tục ngữ/danh ngôn
-├── tests/                      # 448+ test pytest
+├── tests/                      # 499+ test pytest
 ├── scripts/                    # audit, preview, probe, verify
 ├── docs/                       # 5 tài liệu thiết kế & kỹ thuật
 └── assets/                     # icon.png / icon.ico
@@ -124,7 +133,7 @@ QTCalendar/
 
 | Hạng mục | Kết quả |
 |---|---|
-| Test | 492 passed, 7 xfailed (các ca khác biệt có chủ đích của engine HND) |
+| Test | 499 passed, 7 xfailed (các ca khác biệt có chủ đích của engine HND) |
 | Đối chứng âm lịch | 31/31 ngày Tết (1985–2040), 18/18 tháng nhuận, 109.938 ngày liên tục 1900–2200 **0 lỗi** |
 | Dựng lưới lịch tháng | ~0,8 ms cho 42 ô (cache nguội) |
 | Độ mờ nền | ảnh kiểm: 60 % → alpha nền 152/255, chữ vẫn 255/255 |

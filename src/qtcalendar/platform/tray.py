@@ -191,6 +191,7 @@ class TrayIcon(QObject):
     autostart_toggled = Signal(bool)
     today_requested = Signal()
     reset_position_requested = Signal()
+    update_check_requested = Signal()
 
     def __init__(self, icon: QIcon | str | Path | None = None, parent=None) -> None:
         super().__init__(parent)
@@ -320,6 +321,10 @@ class TrayIcon(QObject):
             self.action_settings = QAction("Cài đặt…", menu)
             self.action_settings.triggered.connect(self._on_settings)
             menu.addAction(self.action_settings)
+
+            self.action_update = QAction("Kiểm tra bản cập nhật…", menu)
+            self.action_update.triggered.connect(self.update_check_requested.emit)
+            menu.addAction(self.action_update)
 
             menu.addSeparator()
 

@@ -802,7 +802,7 @@ class BlocView(QWidget):
 
         lunar_font_family = self._ui_family if pill_word else self._display_family
         lunar_weight = _WEIGHT_BOLD if pill_word else _WEIGHT_BLACK
-        lunar_size = max(18, int(round(px(24 if pill_word else 48, e))))
+        lunar_size = max(20, int(round(px(28 if pill_word else 62, e))))
         l_font = QFont(lunar_font_family)
         l_font.setPixelSize(lunar_size)
         l_font.setWeight(lunar_weight)

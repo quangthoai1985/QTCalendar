@@ -46,6 +46,8 @@ from .core.theme import get_theme
 from .platform import autostart
 from .ui.settings_dialog import SettingsDialog
 from .ui.widget_window import CalendarWidget
+from .ui.update_dialog import UpdateCheckWorker, UpdateDialog
+from .core import update_check as uc
 
 __all__ = ["main", "AppController"]
 
@@ -141,6 +143,7 @@ class AppController(QObject):
         w.settings_requested.connect(self.open_settings)
         w.quit_requested.connect(self.quit_app)
         w.hide_requested.connect(self.hide_widget)
+        w.update_check_requested.connect(lambda: self.check_for_updates(silent=False))
 
         tray = self._tray
         if tray is None:
@@ -158,10 +161,17 @@ class AppController(QObject):
         tray.autostart_toggled.connect(w.set_run_at_startup)
         tray.today_requested.connect(w.go_today)
         tray.reset_position_requested.connect(w.reset_position)
+        tray.update_check_requested.connect(lambda: self.check_for_updates(silent=False))
 
     # --------------------------------------------------------------- khởi động
     def start(self) -> None:
         """Hiện widget (nếu lần trước không bị ẩn) và đặt đúng vị trí."""
+        # Dọn dẹp thư mục sao lưu của bản cập nhật trước
+        try:
+            uc.cleanup_previous_update()
+        except Exception:
+            pass
+
         self._widget.restore_position()
         if self._settings.hidden:
             _LOG.info("Khởi động ở chế độ ẩn (lần chạy trước người dùng đã ẩn)")
@@ -169,6 +179,8 @@ class AppController(QObject):
             self._widget.show()
         # Áp dụng ghim/vị trí sau khi cửa sổ đã có HWND
         QTimer.singleShot(0, self._apply_placement_later)
+        # Tự động kiểm tra bản cập nhật ngầm sau 3 giây khởi động
+        QTimer.singleShot(3000, lambda: self.check_for_updates(silent=True))
         _LOG.info(
             "QT Calendar %s sẵn sàng – theme=%s, view=%s, opacity=%.2f",
             __version__,
@@ -244,6 +256,41 @@ class AppController(QObject):
         self._widget.restore_position()
         self._on_settings_changed()
         _LOG.info("Đã áp dụng cài đặt mới: %s", self._settings.to_dict())
+
+    def check_for_updates(self, silent: bool = False) -> None:
+        """Kiểm tra bản cập nhật từ GitHub Release."""
+        from PySide6.QtWidgets import QMessageBox
+
+        worker = UpdateCheckWorker(self)
+
+        def on_checked(release) -> None:
+            if release is not None:
+                dlg = UpdateDialog(
+                    release,
+                    parent=self._widget,
+                    theme=get_theme(self._settings.theme),
+                    scale=self._settings.scale,
+                )
+                dlg.exec()
+            elif not silent:
+                QMessageBox.information(
+                    self._widget,
+                    f"Cập nhật {APP_NAME}",
+                    f"Bạn đang sử dụng phiên bản mới nhất ({__version__}).",
+                )
+
+        def on_failed(error_msg: str) -> None:
+            if not silent:
+                QMessageBox.warning(
+                    self._widget,
+                    f"Cập nhật {APP_NAME}",
+                    f"Không thể kiểm tra bản cập nhật:\n{error_msg}",
+                )
+
+        worker.checked.connect(on_checked)
+        worker.failed.connect(on_failed)
+        self._update_worker = worker
+        worker.start()
 
     def quit_app(self) -> None:
         if self._quitting:
