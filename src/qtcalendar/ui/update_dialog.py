@@ -119,6 +119,8 @@ class UpdateDialog(QDialog):
         self._scale = scale
         self._worker: Optional[UpdateDownloadWorker] = None
         self._prepared: Optional[updater.PreparedUpdate] = None
+        self.outcome: str = "dismiss"
+        self.plan: Optional[uc.InstallPlan] = None
 
         self.setWindowTitle(f"Cập nhật {APP_NAME}")
         self.setMinimumWidth(int(px(460, scale)))
@@ -211,8 +213,9 @@ class UpdateDialog(QDialog):
 
     def _on_action_clicked(self) -> None:
         if self._prepared is not None:
-            # Khởi động lại ngay
-            uc.launch_install(self._prepared.plan)
+            # Người dùng chọn khởi động lại ngay
+            self.outcome = "restart"
+            self.plan = self._prepared.plan
             self.accept()
             return
 
@@ -263,9 +266,9 @@ class UpdateDialog(QDialog):
             self._btn_action.clicked.connect(self.accept)
 
     def _schedule_on_exit(self) -> None:
-        if self._prepared:
-            # Cài đặt tự động khi ứng dụng đóng
-            pass
+        if self._prepared is not None:
+            self.outcome = "on_exit"
+            self.plan = self._prepared.plan
         self.accept()
 
     def _on_failed(self, error_msg: str) -> None:

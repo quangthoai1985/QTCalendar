@@ -272,6 +272,23 @@ class AppController(QObject):
                     scale=self._settings.scale,
                 )
                 dlg.exec()
+                if dlg.outcome == "restart" and dlg.plan is not None:
+                    _LOG.info("Thực hiện cập nhật ngay: chạy launcher và thoát ứng dụng (v%s)", dlg.plan.target_version)
+                    try:
+                        uc.launch_install(dlg.plan)
+                    except Exception as exc:
+                        _LOG.error("Lỗi khi launch_install: %s", exc)
+                        QMessageBox.critical(self._widget, "Lỗi cập nhật", f"Không thể chạy trình cập nhật:\n{exc}")
+                        return
+                    self.quit_app()
+                elif dlg.outcome == "on_exit" and dlg.plan is not None:
+                    _LOG.info("Đã lên lịch cập nhật khi thoát: v%s", dlg.plan.target_version)
+                    self._pending_update_plan = dlg.plan
+                    QMessageBox.information(
+                        self._widget,
+                        f"Cập nhật {APP_NAME}",
+                        f"Bản cập nhật v{dlg.plan.target_version} đã được chuẩn bị và sẽ tự động cài đặt khi bạn thoát ứng dụng.",
+                    )
             elif not silent:
                 QMessageBox.information(
                     self._widget,
@@ -297,6 +314,15 @@ class AppController(QObject):
             return
         self._quitting = True
         _LOG.info("Thoát ứng dụng theo yêu cầu")
+
+        pending = getattr(self, "_pending_update_plan", None)
+        if pending is not None:
+            try:
+                _LOG.info("Kích hoạt cài đặt bản cập nhật khi thoát: v%s", pending.target_version)
+                uc.launch_install(pending)
+            except Exception as exc:
+                _LOG.warning("Lỗi kích hoạt cập nhật khi thoát: %s", exc)
+
         self._widget.hide()
         self._flush_settings()
         if self._tray is not None:

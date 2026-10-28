@@ -469,19 +469,25 @@ function Log($msg) {{
 
 Log "Bắt đầu tiến trình cập nhật lên v$TargetVersion..."
 
-# 1. Đợi tiến trình QT Calendar cũ thoát hẳn
+# 1. Đợi tiến trình QT Calendar cũ thoát hẳn (tối đa 30 giây)
 if ($PidToWait -gt 0) {{
     try {{
         $proc = Get-Process -Id $PidToWait -ErrorAction SilentlyContinue
         if ($proc) {{
             Log "Đợi tiến trình PID $PidToWait thoát..."
-            $proc.WaitForExit(15000)
+            $exited = $proc.WaitForExit(30000)
+            if (-not $exited) {{
+                Log "Tiến trình chưa thoát sau 30s - dừng tiến trình để tiếp tục hoán đổi tệp..."
+                $proc.CloseMainWindow() | Out-Null
+                Start-Sleep -Seconds 2
+                $proc | Stop-Process -Force -ErrorAction SilentlyContinue
+            }}
         }}
     }} catch {{
-        Log "Không cần đợi PID $PidToWait"
+        Log "Không cần đợi PID $PidToWait ($_)"
     }}
 }}
-Start-Sleep -Milliseconds 800
+Start-Sleep -Milliseconds 600
 
 # 2. Hoán đổi thư mục cài đặt
 $OldDir = "$InstallDir.old"
@@ -492,11 +498,23 @@ if (Test-Path $OldDir) {{
 # Bảo lưu các tệp gỡ cài đặt của Inno Setup (unins*)
 $UninstallFiles = Get-ChildItem -Path $InstallDir -Filter "unins*" -File -ErrorAction SilentlyContinue
 
-try {{
-    Log "Đổi tên $InstallDir -> $OldDir"
-    Rename-Item -Path $InstallDir -NewName "$([System.IO.Path]::GetFileName($InstallDir)).old"
-}} catch {{
-    Log "Lỗi đổi tên thư mục cài đặt: $_"
+# Thử đổi tên tối đa 20 lần (mỗi lần cách 500ms) để đợi Windows nhả file handle
+$renamed = $false
+for ($i = 0; $i -lt 20 -and -not $renamed; $i++) {{
+    try {{
+        Log "Thử đổi tên $InstallDir -> $OldDir (lần $($i + 1))..."
+        Rename-Item -Path $InstallDir -NewName "$([System.IO.Path]::GetFileName($InstallDir)).old"
+        $renamed = $true
+    }} catch {{
+        Start-Sleep -Milliseconds 500
+    }}
+}}
+
+if (-not $renamed) {{
+    Log "Lỗi: Không thể đổi tên thư mục cài đặt sau 10s (tệp bị khoá). Huỷ cập nhật."
+    if ($Relaunch -and (Test-Path $ExePath)) {{
+        Start-Process -FilePath $ExePath
+    }}
     exit 1
 }}
 
@@ -511,9 +529,15 @@ try {{
         }}
     }}
 }} catch {{
-    Log "Lỗi khôi phục tệp: $_. Khôi phục bản cũ..."
+    Log "Lỗi khi chuyển bản mới: $_. Đang khôi phục bản cũ..."
+    if (Test-Path $InstallDir) {{
+        Remove-Item -Recurse -Force $InstallDir -ErrorAction SilentlyContinue
+    }}
     if (Test-Path $OldDir) {{
         Rename-Item -Path $OldDir -NewName $([System.IO.Path]::GetFileName($InstallDir))
+    }}
+    if ($Relaunch -and (Test-Path $ExePath)) {{
+        Start-Process -FilePath $ExePath
     }}
     exit 2
 }}
