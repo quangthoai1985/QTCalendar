@@ -17,6 +17,8 @@ py -3.14 -m PyInstaller ^
     --name QTCalendar ^
     --distpath "%DIST_DIR%" ^
     --icon assets\icon.ico ^
+    --paths src ^
+    --collect-all qtcalendar ^
     --add-data "src\qtcalendar\data;qtcalendar\data" ^
     --add-data "assets\icon.ico;assets" ^
     --add-data "assets\icon.png;assets" ^
