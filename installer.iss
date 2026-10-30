@@ -3,7 +3,7 @@
 ; Kết quả: dist\QTCalendar_Setup.exe (Cài đặt im lặng: QTCalendar_Setup.exe /SILENT hoặc /VERYSILENT)
 
 #ifndef AppVersion
-  #define AppVersion "1.1.1"
+  #define AppVersion "1.1.2"
 #endif
 #ifndef SourceDir
   #define SourceDir "dist\QTCalendar"
