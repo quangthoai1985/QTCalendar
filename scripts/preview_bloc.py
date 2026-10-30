@@ -4,10 +4,13 @@ Mục đích: **tự kiểm bằng mắt** mặt trước lịch bloc trước k
 3 ngày × 4 bảng màu ở kích thước chuẩn 344×468, thêm 2 ảnh khung hẹp
 280×420, ảnh scale 125 %, ảnh trạng thái (hắc đạo / ẩn giờ hoàng đạo / ẩn ca
 dao / ca dao 3 dòng / khung nhỏ nhất) và ảnh tích hợp cửa sổ thật
-(``CalendarWidget``). Mỗi ảnh được kiểm tra tự động: chữ có bị cắt, nhãn có
-tràn khung, các nhãn có đè nhau, khoảng thở ca dao → nguồn ≥ 6 px. Script
-cũng kiểm tra :func:`qtcalendar.ui.styles.build_stylesheet` có đủ toàn bộ
-selector bắt buộc cho cả 4 bảng màu.
+(``CalendarWidget``). Mỗi ảnh được kiểm tra tự động theo bố cục 3 cột chân
+lịch: chữ trong nhãn có bị cắt (nhãn nhiều dòng đo từng dòng), châm ngôn dải
+hoa văn có vừa khung, số ngày dương/âm có bị cắt, thành phần có tràn khỏi tờ
+giấy hay đè nhau, chân lịch có đủ thành phần, khoảng thở ca dao → nguồn (đo
+giữa hai vệt mực) ≥ 6 px ở khung chuẩn. Script cũng kiểm tra
+:func:`qtcalendar.ui.styles.build_stylesheet` có đủ toàn bộ selector bắt buộc
+cho cả 4 bảng màu.
 
 Cách chạy (từ gốc dự án)::
 
@@ -82,24 +85,27 @@ LONG_QUOTE = (
     "danh-ngon",
 )
 
-#: Toàn bộ selector QSS bắt buộc (theo đặc tả ``ui/styles.py``).
+#: Toàn bộ selector QSS bắt buộc. Phần lịch bloc khớp widget thật của
+#: ``BlocView`` (bố cục 3 cột chân lịch) – ``_validate_stylesheets`` dò lại
+#: các nhãn của ``BlocView`` để danh sách này không lỗi thời âm thầm.
 REQUIRED_SELECTORS: tuple[str, ...] = (
     "QWidget#BlocRoot",
-    "QLabel#WeekdayLabel",
     "QLabel#SolarDayLabel",
-    "QLabel#SolarMonthLabel",
-    "QLabel#LunarLabel",
-    "QLabel#LunarCaptionLabel",
-    "QLabel#LunarMonthLabel",
-    "QLabel#LunarYearLabel",
-    "QWidget#LunarPill",
-    "QLabel#CanChiLabel",
     "QLabel#QuoteLabel",
     "QLabel#CreditLabel",
-    "QLabel#ChipLabel",
-    "QLabel#TietKhiLabel",
-    "QLabel#HolidayLabel",
+    "QLabel#Col1MonthEn",
+    "QLabel#Col1MonthVn",
+    "QLabel#Col1Zodiac",
+    "QLabel#Col1HoursTitle",
+    "QLabel#Col1Hours",
+    "QLabel#Col1Footer",
+    "QLabel#Col2Weekday",
+    "QLabel#Col2WeekdayEn",
+    "QLabel#Col3LunarMonth",
+    "QLabel#Col3CanChi",
+    "QLabel#Col3TietKhi",
     "QFrame#Divider",
+    "QWidget#DividerOrnament",
     "QWidget#MonthRoot",
     "QLabel#MonthTitleLabel",
     "QLabel#MonthSubtitleLabel",
@@ -113,6 +119,32 @@ REQUIRED_SELECTORS: tuple[str, ...] = (
     "QSlider",
     "QCheckBox",
 )
+
+#: Thành phần chân lịch 3 cột luôn phải hiện (objectName → số widget).
+FOOTER_PARTS: dict[str, int] = {
+    "Col1MonthEn": 1,
+    "Col1MonthVn": 1,
+    "Col1Zodiac": 1,
+    "Col1Footer": 1,
+    "Col2Weekday": 1,
+    "Col2WeekdayEn": 1,
+    "Col2LunarPill": 1,
+    "Col3LunarMonth": 1,
+    "Col3CanChi": 4,
+}
+
+#: Khoảng thở tối thiểu giữa mực dòng cuối ca dao và mực dòng ghi nguồn, tính
+#: bằng design-pixel ở khung chuẩn 344×468 (quy đổi theo hệ số co giãn thật).
+QUOTE_CREDIT_MIN_GAP = 6
+
+#: Ngưỡng alpha (0–255) để một điểm ảnh được tính là mực chữ khi đo khoảng
+#: thở – loại bóng mờ "mực thấm" (alpha ≈ 10–12 %) và viền khử răng cưa nhạt.
+_INK_ALPHA = 64
+#: Ngưỡng alpha khi xét chữ bị cắt: chỉ mất điểm ảnh mực đậm (≥ 50 %) mới thấy
+#: nét bị xén; mất vài điểm viền khử răng cưa nhạt thì mắt không nhận ra.
+_SOLID_INK_ALPHA = 128
+_INK_TABLE = bytes(1 if value >= _INK_ALPHA else 0 for value in range(256))
+_SOLID_INK_TABLE = bytes(1 if value >= _SOLID_INK_ALPHA else 0 for value in range(256))
 
 #: Font hệ thống cần nạp khi chạy offscreen (Windows).
 _WINDOWS_FONT_FILES: tuple[str, ...] = (
@@ -237,8 +269,6 @@ def _render(
     scale: float = 1.0,
 ) -> RenderReport:
     from PySide6.QtCore import Qt
-    from PySide6.QtGui import QFontMetricsF
-    from PySide6.QtWidgets import QLabel
 
     from qtcalendar.core.calendar_service import get_day_info
     from qtcalendar.core.theme import get_theme
@@ -275,153 +305,15 @@ def _render(
         warnings.append(
             f"kích thước thực {view.width()}x{view.height()} khác yêu cầu {size}"
         )
-
-    labels = {label.objectName(): label for label in view.findChildren(QLabel)}
-
-    for label in view.findChildren(QLabel):
-        if label.isHidden() or label.geometry().isEmpty():
-            continue
-        text = label.text()
-        if not text:
-            continue
-        if label.objectName() == "QuoteLabel":
-            # đã ngắt dòng sẵn: kiểm từng dòng không vượt bề rộng nhãn
-            metrics = QFontMetricsF(label.font())
-            lines = text.split("\n")
-            max_width = max(
-                (metrics.horizontalAdvance(line) for line in lines),
-                default=0.0,
-            )
-            if max_width > label.width() + 1.5:
-                warnings.append(
-                    f"{label.objectName()}: dòng ca dao rộng {max_width:.0f}px "
-                    f"> nhãn {label.width()}px"
-                )
-            if len(lines) > 3:
-                warnings.append(f"{label.objectName()}: {len(lines)} dòng > 3")
-            text_height = metrics.height() * len(lines)
-            if label.height() + 0.5 < text_height:
-                warnings.append(
-                    f"{label.objectName()}: cao {label.height()}px < {len(lines)} dòng "
-                    f"cần {text_height:.0f}px"
-                )
-            continue
-        metrics = QFontMetricsF(label.font())
-        advance = metrics.horizontalAdvance(text)
-        if advance > label.width() + 1.5:
-            warnings.append(
-                f"{label.objectName()}: chữ rộng {advance:.0f}px > nhãn {label.width()}px"
-            )
-        height_needed = metrics.height()
-        if label.height() + 0.5 < height_needed:
-            warnings.append(
-                f"{label.objectName()}: cao {label.height()}px < cần {height_needed:.0f}px"
-            )
-        geometry = label.geometry()
-        if geometry.right() > view.width() or geometry.bottom() > view.height():
-            warnings.append(
-                f"{label.objectName()}: tràn khung {geometry.getRect()}"
-            )
-
-    # --- KHỐI ÂM LỊCH phải luôn hiển thị đầy đủ (caption + số + tháng + năm) ---
-    lunar_pill = view._lunar_pill  # noqa: SLF001 - chỉ dùng để tự kiểm
-    lunar_widgets = {
-        "LunarCaptionLabel": labels.get("LunarCaptionLabel"),
-        "LunarPill": lunar_pill,
-        "LunarMonthLabel": labels.get("LunarMonthLabel"),
-        "LunarYearLabel": labels.get("LunarYearLabel"),
-    }
-    for name, widget in lunar_widgets.items():
-        if widget is None:
-            warnings.append(f"{name}: không tồn tại (khối âm lịch hỏng)")
-            continue
-        if widget.isHidden() or widget.geometry().isEmpty():
-            warnings.append(f"{name}: khối âm lịch bị ẩn/rỗng")
-            continue
-        geo = widget.geometry()
-        if (
-            geo.left() < -1
-            or geo.top() < -1
-            or geo.right() > view.width() + 1
-            or geo.bottom() > view.height() + 1
-        ):
-            warnings.append(f"{name}: tràn khung {geo.getRect()}")
-    month_label = labels.get("LunarMonthLabel")
-    if month_label is not None and (
-        month_label.isHidden() or not month_label.text().strip()
-    ):
-        warnings.append("LunarMonthLabel: thiếu nhãn tháng âm")
-    if lunar_pill is not None and not lunar_pill.isHidden():
-        pill_font = lunar_pill.font_for_paint()
-        pill_metrics = QFontMetricsF(pill_font)
-        pill_text = lunar_pill.text()
-        advance = pill_metrics.horizontalAdvance(pill_text)
-        if advance > lunar_pill.width() + 0.5:
-            warnings.append(
-                f"LunarPill: chữ '{pill_text}' rộng {advance:.0f}px "
-                f"> viên {lunar_pill.width()}px"
-            )
-        tight = pill_metrics.tightBoundingRect(pill_text)
-        if tight.height() > lunar_pill.height() + 0.5:
-            warnings.append(
-                f"LunarPill: cao chữ {tight.height():.0f}px "
-                f"> viên {lunar_pill.height()}px"
-            )
-        # yêu cầu "số âm lớn gấp ≥2,5 lần cỡ chữ cũ (17.8px)" ở khung chuẩn
-        if pill_text.isdigit():
-            if view.width() >= 340 and pill_font.pixelSize() < round(17.8 * 2.5):
-                warnings.append(
-                    f"LunarPill: cỡ số âm {pill_font.pixelSize()}px < 44.5px (2,5×)"
-                )
-        elif view.width() >= 340 and pill_font.pixelSize() < 20:
-            warnings.append(
-                f"LunarPill: chữ đặc biệt '{pill_text}' chỉ {pill_font.pixelSize()}px (< 20px)"
-            )
-
-    # khoảng thở tối thiểu 6px giữa dòng cuối ca dao và dòng ghi nguồn
-    quote_label = labels.get("QuoteLabel")
-    credit_label = labels.get("CreditLabel")
-    if (
-        quote_label is not None
-        and credit_label is not None
-        and not quote_label.isHidden()
-        and not quote_label.geometry().isEmpty()
-        and not credit_label.isHidden()
-    ):
-        metrics = QFontMetricsF(quote_label.font())
-        line_count = max(1, len(quote_label.text().split("\n")))
-        text_height = metrics.height() * line_count
-        text_bottom = quote_label.y() + (quote_label.height() - text_height) / 2 + text_height
-        gap = credit_label.y() - text_bottom
-        if gap < 6:
-            warnings.append(
-                f"khoảng cách ca dao → nguồn chỉ {gap:.1f}px (< 6px)"
-            )
-
-    # số ngày (vẽ tay) phải cách dòng "THÁNG …" tối thiểu 4px
-    day_label = view._day  # noqa: SLF001 - chỉ dùng để tự kiểm
-    month_label = labels.get("SolarMonthLabel")
-    if (
-        month_label is not None
-        and not day_label.isHidden()
-        and not month_label.isHidden()
-    ):
-        metrics = QFontMetricsF(day_label.font_for_paint())
-        tight = metrics.tightBoundingRect(day_label.text())
-        glyph_bottom = day_label.y() + (day_label.height() + tight.height()) / 2
-        gap = month_label.y() - glyph_bottom
-        if gap < 4:
-            warnings.append(f"số ngày cách dòng tháng chỉ {gap:.1f}px (< 4px)")
-
-    # các nhãn hiển thị không được đè nhau
-    visible = [w for w in view._all_widgets if not w.isHidden() and not w.geometry().isEmpty()]  # noqa: SLF001 - chỉ dùng để tự kiểm
-    for i, first in enumerate(visible):
-        for second in visible[i + 1 :]:
-            inter = first.geometry().intersected(second.geometry())
-            if inter.width() > 2 and inter.height() > 2:
-                name_a = first.objectName() or type(first).__name__
-                name_b = second.objectName() or type(second).__name__
-                warnings.append(f"nhãn đè nhau: {name_a} ↔ {name_b} ({inter.getRect()})")
+    warnings.extend(
+        _layout_warnings(
+            view,
+            info,
+            show_quote=show_quote and quote is not None,
+            show_auspicious=show_auspicious,
+            show_tiet_khi=show_tiet_khi,
+        )
+    )
 
     pixmap = view.grab()
     if pixmap.isNull():  # pragma: no cover
@@ -435,6 +327,320 @@ def _render(
     view.deleteLater()
     app.processEvents()
     return RenderReport(path=path, size=actual, warnings=warnings)
+
+
+def _describe(widget) -> str:
+    """Tên widget kèm chữ đang hiện (bốn nhãn ``Col3CanChi`` trùng objectName)."""
+    name = widget.objectName() or type(widget).__name__
+    text = widget.text() if callable(getattr(widget, "text", None)) else ""
+    first = text.split("\n", 1)[0].strip()
+    if not first:
+        return name
+    if len(first) > 24:
+        first = first[:23] + "…"
+    return f"{name} '{first}'"
+
+
+def _label_flags(label) -> int:
+    """Cờ ``drawText`` mà QLabel dùng khi vẽ chữ thuần (alignment ± ngắt dòng)."""
+    from PySide6.QtCore import Qt
+
+    flags = label.alignment().value
+    if label.wordWrap():
+        flags |= Qt.TextFlag.TextWordWrap.value
+    return flags
+
+
+def _ink_box(image, table: bytes = _INK_TABLE) -> tuple[int, int, int, int] | None:
+    """Hộp (trái, trên, phải, dưới) các điểm ảnh có mực của ảnh ARGB32.
+
+    ``table`` đổi alpha → 1 (là mực) / 0, chọn ngưỡng mực nhạt hay mực đậm.
+    """
+    stride = image.bytesPerLine()
+    row_bytes = 4 * image.width()
+    data = bytes(image.constBits())
+    box: list[int] | None = None
+    for y in range(image.height()):
+        # ARGB32 little-endian: mỗi điểm ảnh là B, G, R, A → alpha ở byte thứ 4
+        alpha = data[y * stride + 3 : y * stride + row_bytes : 4].translate(table)
+        first = alpha.find(1)
+        if first < 0:
+            continue
+        last = alpha.rfind(1)
+        if box is None:
+            box = [first, y, last, y]
+        else:
+            box[0] = min(box[0], first)
+            box[2] = max(box[2], last)
+            box[3] = y
+    return None if box is None else (box[0], box[1], box[2], box[3])
+
+
+def _ink_rows(widget) -> tuple[int, int] | None:
+    """Hàng điểm ảnh đầu/cuối có mực của ``widget`` (toạ độ trong view cha).
+
+    Vẽ riêng widget lên ảnh trong suốt (không nền, không widget con) rồi dò
+    kênh alpha: đo đúng chữ đã vẽ thay vì hộp ascent/descent của font.
+    """
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtGui import QImage, QRegion
+    from PySide6.QtWidgets import QWidget
+
+    image = QImage(widget.size(), QImage.Format.Format_ARGB32_Premultiplied)
+    image.fill(Qt.GlobalColor.transparent)
+    widget.render(image, QPoint(), QRegion(), QWidget.RenderFlag(0))
+    box = _ink_box(image)
+    return None if box is None else (widget.y() + box[1], widget.y() + box[3])
+
+
+def _ink_overflow(widget, area, font, draw) -> int:
+    """Số điểm ảnh mực chữ thò ra ngoài ``area`` – phần đó bị cắt khi vẽ thật.
+
+    ``draw(painter, rect)`` lặp lại đúng lệnh vẽ chữ của widget vào ``rect``
+    (cùng cỡ ``area``) nhưng không cắt; ảnh được nới rộng quanh khung để giữ
+    phần tràn rồi so hộp mực đậm với khung. 0 = mực đậm nằm trọn trong khung,
+    nên hộp dòng (ascent/descent) có lố 1–2px mà nét chữ không chạm mép, hay
+    chỉ mất viền khử răng cưa nhạt, thì không tính.
+    """
+    from PySide6.QtCore import QRectF, Qt
+    from PySide6.QtGui import QColor, QImage, QPainter
+
+    width = int(area.width())
+    height = int(area.height())
+    pad = max(16, max(width, height) // 2)
+    image = QImage(
+        width + 2 * pad, height + 2 * pad, QImage.Format.Format_ARGB32_Premultiplied
+    )
+    dots_per_meter = round(widget.logicalDpiY() / 0.0254)  # font cỡ point
+    image.setDotsPerMeterX(dots_per_meter)
+    image.setDotsPerMeterY(dots_per_meter)
+    image.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(image)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+    painter.setFont(font)
+    painter.setPen(QColor(0, 0, 0))
+    draw(painter, QRectF(pad, pad, area.width(), area.height()))
+    painter.end()
+    box = _ink_box(image, _SOLID_INK_TABLE)
+    if box is None:
+        return 0
+    left, top, right, bottom = box
+    return max(
+        0,
+        pad - left,
+        pad - top,
+        right - (pad + width - 1),
+        bottom - (pad + height - 1),
+    )
+
+
+def _draw_text_in(text: str, flags: int):
+    """Lệnh vẽ ``drawText(rect, flags, text)`` (như QLabel/QPainter) nhưng không cắt."""
+    from PySide6.QtCore import Qt
+
+    def draw(painter, rect) -> None:
+        painter.drawText(rect, flags | Qt.TextFlag.TextDontClip.value, text)
+
+    return draw
+
+
+def _draw_text_centered(text: str):
+    """Lệnh vẽ số căn tâm theo hộp mực – khớp ``_DayNumber``/``_LunarPill``."""
+    from PySide6.QtCore import QPointF
+    from PySide6.QtGui import QFontMetricsF
+
+    def draw(painter, rect) -> None:
+        tight = QFontMetricsF(painter.font()).tightBoundingRect(text)
+        x = rect.x() + (rect.width() - tight.width()) / 2.0 - tight.x()
+        y = rect.y() + rect.height() / 2.0 - (tight.y() + tight.height() / 2.0)
+        painter.drawText(QPointF(x, y), text)
+
+    return draw
+
+
+def _layout_warnings(
+    view,
+    info,
+    *,
+    show_quote: bool,
+    show_auspicious: bool,
+    show_tiet_khi: bool,
+) -> list[str]:
+    """Tự kiểm bố cục ``BlocView`` (banner – số ngày – ca dao – chân lịch 3 cột)."""
+    from PySide6.QtCore import QRectF, Qt
+    from PySide6.QtGui import QFontMetricsF
+    from PySide6.QtWidgets import QLabel, QWidget
+
+    from qtcalendar.ui.styles import px
+
+    warnings: list[str] = []
+    eff = view._eff  # noqa: SLF001 - chỉ dùng để tự kiểm
+    day_number = view._day  # noqa: SLF001 - chỉ dùng để tự kiểm
+    banner = view._top_banner  # noqa: SLF001 - chỉ dùng để tự kiểm
+    divider = view._div_footer  # noqa: SLF001 - chỉ dùng để tự kiểm
+    quote_label = view.findChild(QLabel, "QuoteLabel")
+    credit_label = view.findChild(QLabel, "CreditLabel")
+    visible = [
+        w
+        for w in view._all_widgets  # noqa: SLF001 - chỉ dùng để tự kiểm
+        if not w.isHidden() and not w.geometry().isEmpty()
+    ]
+
+    # --- chữ trong nhãn không bị cắt: vẽ lại như QLabel (tách dòng theo \n,
+    # đo từng dòng, căn theo alignment) rồi xem mực có thò khỏi nhãn không ---
+    for label in view.findChildren(QLabel):
+        if label is day_number:  # tự vẽ, kiểm riêng bên dưới
+            continue
+        if label.isHidden() or label.geometry().isEmpty() or not label.text():
+            continue
+        area = QRectF(label.contentsRect())
+        flags = _label_flags(label)
+        cut = _ink_overflow(label, area, label.font(), _draw_text_in(label.text(), flags))
+        if cut > 0:
+            block = QFontMetricsF(label.font()).boundingRect(area, flags, label.text())
+            lines = label.text().count("\n") + 1
+            per_line = f", dòng dài nhất trong {lines} dòng" if lines > 1 else ""
+            warnings.append(
+                f"{_describe(label)}: mực chữ bị cắt {cut}px "
+                f"(khối chữ {block.width():.0f}×{block.height():.0f}px{per_line} "
+                f"> nhãn {area.width():.0f}×{area.height():.0f}px)"
+            )
+
+    # --- mọi thành phần nằm trong tờ giấy (không lấn xuống mép giấy/bóng đổ) ---
+    paper = view._paper_rect().adjusted(-1, -1, 1, 1)  # noqa: SLF001 - chỉ dùng để tự kiểm
+    for widget in visible:
+        if not paper.contains(QRectF(widget.geometry())):
+            warnings.append(
+                f"{_describe(widget)}: tràn ra ngoài tờ giấy {widget.geometry().getRect()}"
+            )
+
+    # --- chân lịch 3 cột phải đủ thành phần, phần tuỳ chọn ẩn/hiện đúng cài đặt ---
+    for name, count in FOOTER_PARTS.items():
+        widgets = view.findChildren(QWidget, name)
+        if len(widgets) != count:
+            warnings.append(f"{name}: có {len(widgets)} widget, cần {count} (chân lịch hỏng)")
+        for widget in widgets:
+            if widget.isHidden() or widget.geometry().isEmpty() or not widget.text().strip():
+                warnings.append(f"{_describe(widget)}: bị ẩn/rỗng (chân lịch thiếu thành phần)")
+    has_hours = bool(info.auspicious_hours)
+    expected = {
+        "Col1HoursTitle": show_auspicious and has_hours,
+        "Col1Hours": show_auspicious and has_hours,
+        "Col3TietKhi": show_tiet_khi and bool((info.tiet_khi or "").strip()),
+        "QuoteLabel": show_quote,
+    }
+    for name, should_show in expected.items():
+        widget = view.findChild(QWidget, name)
+        shown = (
+            widget is not None
+            and not widget.isHidden()
+            and not widget.geometry().isEmpty()
+        )
+        if shown != should_show:
+            state = "đang ẩn dù phải hiện" if should_show else "vẫn hiện dù đã tắt"
+            warnings.append(f"{name}: {state}")
+
+    # --- châm ngôn trên dải hoa văn (_TopArtBanner tự vẽ, cắt theo khung chữ) ---
+    if banner in visible and banner.width() > 140:  # hẹp hơn thì banner bỏ châm ngôn
+        motto = banner._motto  # noqa: SLF001 - chỉ dùng để tự kiểm
+        motto_font = banner._font  # noqa: SLF001 - chỉ dùng để tự kiểm
+        # khớp text_rect trong _TopArtBanner.paintEvent (drawText cắt theo khung này)
+        area = QRectF(46.0, 2.0, banner.width() - 92.0, banner.height() - 6.0)
+        flags = Qt.AlignmentFlag.AlignCenter.value | Qt.TextFlag.TextWordWrap.value
+        cut = _ink_overflow(banner, area, motto_font, _draw_text_in(motto, flags))
+        if cut > 0:
+            motto_metrics = QFontMetricsF(motto_font, banner)
+            block = motto_metrics.boundingRect(area, flags, motto)
+            lines = max(1, round(block.height() / motto_metrics.lineSpacing()))
+            warnings.append(
+                f"TopArtBanner: châm ngôn {lines} dòng bị cắt {cut}px "
+                f"(khối chữ {block.height():.0f}px > khung chữ "
+                f"{area.width():.0f}×{area.height():.0f}px)"
+            )
+
+    # --- số ngày dương (vẽ tay): không bị cắt, cách banner và dòng kế dưới ≥ 4px ---
+    if day_number in visible:
+        day_font = day_number.font_for_paint()
+        cut = _ink_overflow(
+            day_number,
+            QRectF(day_number.rect()),
+            day_font,
+            _draw_text_centered(day_number.text()),
+        )
+        if cut > 0:
+            tight = QFontMetricsF(day_font).tightBoundingRect(day_number.text())
+            warnings.append(
+                f"{_describe(day_number)}: mực số bị cắt {cut}px "
+                f"({tight.width():.0f}×{tight.height():.0f}px "
+                f"> khung {day_number.width()}×{day_number.height()}px)"
+            )
+        day_ink = _ink_rows(day_number)
+        banner_ink = _ink_rows(banner) if banner in visible else None
+        if day_ink and banner_ink:
+            gap = day_ink[0] - banner_ink[1] - 1
+            if gap < 4:
+                warnings.append(f"số ngày cách dải hoa văn chỉ {gap}px (< 4px)")
+        if quote_label in visible:
+            below_name, below_ink = "ca dao", _ink_rows(quote_label)
+            below_top = below_ink[0] if below_ink else None
+        else:
+            below_name, below_top = "đường phân cách", divider.y()
+        if day_ink and below_top is not None:
+            gap = below_top - day_ink[1] - 1
+            if gap < 4:
+                warnings.append(f"số ngày cách {below_name} chỉ {gap}px (< 4px)")
+
+    # --- khoảng thở ca dao → nguồn, đo giữa hai vệt mực ---
+    # _relayout() đặt nhãn nguồn ngay dưới hộp các dòng ca dao + px(2): khoảng
+    # thở thật còn gồm descent của ca dao và phần trống trên dấu của dòng nguồn,
+    # nên đo giữa mực của hai dòng, không đo giữa hai hộp nhãn (luôn = px(2)).
+    if quote_label in visible and credit_label in visible:
+        quote_ink = _ink_rows(quote_label)
+        credit_ink = _ink_rows(credit_label)
+        if quote_ink and credit_ink:
+            gap = credit_ink[0] - quote_ink[1] - 1
+            need = px(QUOTE_CREDIT_MIN_GAP, eff)
+            if gap < need:
+                warnings.append(
+                    f"khoảng thở ca dao → nguồn chỉ {gap}px "
+                    f"(< {need}px = {QUOTE_CREDIT_MIN_GAP}px × co giãn {eff:.2f})"
+                )
+
+    # --- số ngày âm (Col2LunarPill tự vẽ): mực chữ nằm trọn trong cột giữa ---
+    pill = view.findChild(QWidget, "Col2LunarPill")
+    if pill is not None and pill in visible and pill.text():
+        pill_font = pill.font_for_paint()
+        cut = _ink_overflow(
+            pill, QRectF(pill.rect()), pill_font, _draw_text_centered(pill.text())
+        )
+        if cut > 0:
+            tight = QFontMetricsF(pill_font).tightBoundingRect(pill.text())
+            warnings.append(
+                f"{_describe(pill)}: mực chữ bị cắt {cut}px "
+                f"({tight.width():.0f}×{tight.height():.0f}px "
+                f"> khung {pill.width()}×{pill.height()}px)"
+            )
+        # số âm phải lớn gấp ≥ 2,5 lần cỡ chữ cũ (17.8px) ở khung chuẩn
+        if (
+            pill.text().isdigit()
+            and view.width() >= 340
+            and pill_font.pixelSize() < round(17.8 * 2.5)
+        ):
+            warnings.append(
+                f"{_describe(pill)}: cỡ số âm {pill_font.pixelSize()}px < 44.5px (2,5×)"
+            )
+
+    # --- các thành phần hiển thị không được đè nhau ---
+    for i, first in enumerate(visible):
+        for second in visible[i + 1 :]:
+            inter = first.geometry().intersected(second.geometry())
+            if inter.width() > 2 and inter.height() > 2:
+                warnings.append(
+                    f"nhãn đè nhau: {_describe(first)} ↔ {_describe(second)} "
+                    f"({inter.getRect()})"
+                )
+    return warnings
 
 
 def _validate_stylesheets() -> list[str]:
@@ -469,11 +675,31 @@ def _validate_stylesheets() -> list[str]:
             # QSS dùng ngoặc nhọn cân đối
             if qss.count("{") != qss.count("}"):
                 problems.append(f"{theme.name}@{scale}: ngoặc nhọn lệch")
+    for selector in sorted(_bloc_label_selectors() - set(REQUIRED_SELECTORS)):
+        problems.append(
+            f"REQUIRED_SELECTORS thiếu {selector} – nhãn có thật trong BlocView"
+        )
     print(
         f"[preview] QSS: kiểm {len(REQUIRED_SELECTORS)} selector × {combos} tổ hợp "
         f"(4 theme × 3 scale) → {'OK' if not problems else f'{len(problems)} lỗi'}"
     )
     return problems
+
+
+def _bloc_label_selectors() -> set[str]:
+    """Selector QSS mà các nhãn/khung thật của ``BlocView`` dựa vào để lấy màu."""
+    from PySide6.QtWidgets import QFrame, QLabel
+
+    from qtcalendar.ui.bloc_view import BlocView
+
+    view = BlocView()
+    selectors = {f"QWidget#{view.objectName()}"}
+    for widget in view.findChildren(QFrame):
+        if widget.objectName():
+            kind = "QLabel" if isinstance(widget, QLabel) else "QFrame"
+            selectors.add(f"{kind}#{widget.objectName()}")
+    view.deleteLater()
+    return selectors
 
 
 def _clean_previous_images() -> int:
@@ -680,7 +906,6 @@ def _render_app_scenes(app) -> list[Path]:
         try:
             settings = Settings(
                 theme=theme_name,
-                view="bloc",
                 placement="floating",
                 width=width,
                 height=height,
