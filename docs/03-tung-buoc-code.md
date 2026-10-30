@@ -381,112 +381,111 @@ Quy ước: HWND dùng `c_void_p` (an toàn 32/64-bit), `GetWindowLongW` đượ
 
 ## 8. Ghim cửa sổ xuống Desktop
 
+> Từ bản 1.0.1 dự án bỏ `SetParent(Progman)` và chuyển sang **cơ chế kiểu
+> Rainmeter**. Lý do và phân tích đầy đủ ở `docs/01-kien-truc.md` §4.
+
 ### 8.1 Nguyên lý
 
-`Win + D` chỉ thu nhỏ **cửa sổ cấp cao nhất**. Cửa sổ **con** của `Progman`
-(desktop window của Explorer) không bị liệt kê bởi `EnumWindows` ⇒ không bị
-ẩn; cũng không xuất hiện trong Alt+Tab.
+* Widget **vẫn là cửa sổ cấp cao nhất**, nằm ở `HWND_BOTTOM`: dưới mọi ứng
+  dụng, trên hình nền. Nhờ vậy Qt giữ nguyên `WA_TranslucentBackground`
+  (alpha từng điểm ảnh, góc bo, bóng đổ).
+* `WS_EX_TOOLWINDOW` ⇒ không có trong taskbar/Alt+Tab; `WS_EX_NOACTIVATE`
+  ⇒ click không cướp focus.
+* `Win + D` nâng lớp Desktop (`Progman` trên Win11 24H2+, `WorkerW` chứa
+  `SHELLDLL_DefView` trên bản cũ) lên trên. Một cửa sổ **sentinel** vô hình ở
+  `HWND_BOTTOM` giúp phát hiện điều đó; khi ấy widget được nâng lên
+  `HWND_TOPMOST` rồi chèn ngay dưới Taskbar.
 
-### 8.2 Mã nguồn đầy đủ bước ghim
+### 8.2 Mã nguồn chính
 
-`platform/desktop_pin.py`:
+`platform/desktop_pin.py` (rút gọn):
 
 ```python
-WM_SPAWN_WORKERW = 0x052C          # thông điệp "private" bảo Explorer tạo WorkerW
-
-def _locate_host() -> tuple[int, str]:
-    progman = win32.find_window("Progman")
-    if progman and win32.find_window_ex(progman, 0, "SHELLDLL_DefView"):
-        return (progman, "Progman")
-    # Một số bản Windows đặt icon trong một WorkerW riêng
-    worker = win32.find_window_ex(0, 0, "WorkerW")
-    while worker:
-        if win32.find_window_ex(worker, 0, "SHELLDLL_DefView"):
-            return (worker, "WorkerW")
-        worker = win32.find_window_ex(0, worker, "WorkerW")
-    return (progman, "Progman") if progman else (0, "")
+SENTINEL_CLASS = "STATIC"
+SENTINEL_TITLE = "QTCalendarSystem"
+ZPOS_FLAGS = (SWP_NOMOVE | SWP_NOSIZE | SWP_NOOWNERZORDER
+              | SWP_NOACTIVATE | SWP_NOSENDCHANGING)
 
 
-def find_desktop_host() -> tuple[int, str]:
-    progman = win32.find_window("Progman")
-    if progman:
-        # Bước 1: bảo Explorer sinh WorkerW nếu chưa có (idempotent)
-        win32.send_message_timeout(progman, WM_SPAWN_WORKERW, 0, 0, 1000,
-                                   win32.SMTO_ABORTIFHUNG)
-    return _locate_host()
+def is_show_desktop_active() -> bool:
+    host = get_desktop_icons_host()          # Progman hoặc WorkerW chứa DefView
+    if not host or not win32.is_window_visible(host):
+        return False
+    sentinel = _ensure_sentinel()
+    # Lớp Desktop bị nâng lên trên sentinel ⇒ đang Show Desktop
+    if sentinel and win32.find_window_ex(0, host, SENTINEL_CLASS, SENTINEL_TITLE) == sentinel:
+        return True
+    fg = win32.get_foreground_window()
+    return bool(fg and (fg == host or win32.get_ancestor(fg, 2) == host))
+
+
+def update_z_order(hwnd: int) -> None:
+    if is_show_desktop_active():
+        win32.set_window_pos(hwnd, win32.HWND_TOPMOST, 0, 0, 0, 0, ZPOS_FLAGS)
+        taskbar = win32.find_window("Shell_TrayWnd")
+        if taskbar and win32.is_window_visible(taskbar):
+            win32.set_window_pos(hwnd, taskbar, 0, 0, 0, 0, ZPOS_FLAGS)
+    else:
+        win32.set_window_pos(hwnd, win32.HWND_BOTTOM, 0, 0, 0, 0, ZPOS_FLAGS)
 
 
 def pin(hwnd: int) -> bool:
-    if not IS_WINDOWS or not hwnd or not win32.is_window(hwnd):
-        return False
-    host, host_class = find_desktop_host()
-    if not host:
-        return False
-    rect = win32.get_window_rect(hwnd)                       # giữ vị trí màn hình
-    style = win32.get_window_long(hwnd, win32.GWL_STYLE)
     exstyle = win32.get_window_long(hwnd, win32.GWL_EXSTYLE)
-    owner = win32.get_owner(hwnd)
-
-    if not win32.set_parent(hwnd, host):                     # ← bước quyết định
-        last_error = win32.get_last_error()
-        log.warning("SetParent thất bại: Win32 error %s", last_error)
-        return False
-
-    win32.set_window_long(hwnd, win32.GWL_STYLE,
-                          (style | win32.WS_CHILD) & ~win32.WS_POPUP)
-    if rect:
-        x, y, right, bottom = rect
-        win32.set_window_pos(hwnd, win32.HWND_TOP, x, y,
-                             right - x, bottom - y,
-                             win32.SWP_NOACTIVATE | win32.SWP_SHOWWINDOW)
-    _states[hwnd] = _PinState(hwnd=hwnd, host=host, host_class=host_class,
-                              parent=0, style=style, exstyle=exstyle,
-                              rect=rect, owner=owner)
+    style = win32.get_window_long(hwnd, win32.GWL_STYLE)
+    _saved_states[hwnd] = _PinState(hwnd=hwnd, exstyle=exstyle, style=style)
+    win32.set_window_long(hwnd, win32.GWL_EXSTYLE,
+                          exstyle | win32.WS_EX_TOOLWINDOW | win32.WS_EX_NOACTIVATE)
+    _ensure_sentinel()
+    _setup_event_hook()                      # SetWinEventHook(EVENT_SYSTEM_FOREGROUND)
+    update_z_order(hwnd)
+    _pinned_hwnds.add(hwnd)
     return True
 
 
 def unpin(hwnd: int) -> bool:
-    state = _states.pop(hwnd, None)
-    if not win32.is_window(hwnd):
-        return False
-    win32.set_parent(hwnd, 0)
-    if state:
-        win32.set_window_long(hwnd, win32.GWL_STYLE, state.style)
-        win32.set_window_long(hwnd, win32.GWL_EXSTYLE, state.exstyle)
-        if state.rect:
-            x, y, right, bottom = state.rect
-            win32.set_window_pos(hwnd, win32.HWND_TOP, x, y,
-                                 right - x, bottom - y,
-                                 win32.SWP_NOACTIVATE | win32.SWP_SHOWWINDOW)
+    if hwnd in _saved_states:
+        win32.set_window_long(hwnd, win32.GWL_EXSTYLE, _saved_states.pop(hwnd).exstyle)
+    win32.set_window_pos(hwnd, win32.HWND_NOTOPMOST, 0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOSENDCHANGING)
+    _pinned_hwnds.discard(hwnd)
+    if not _pinned_hwnds:                    # không còn ai ghim ⇒ dọn dẹp
+        _cleanup_event_hook()
+        _cleanup_sentinel()
     return True
 ```
 
-### 8.3 Ba cạm bẫy phải xử lý ở tầng UI
+Hook `EVENT_SYSTEM_FOREGROUND` (cờ `WINEVENT_OUTOFCONTEXT |
+WINEVENT_SKIPOWNPROCESS`) gọi `update_z_order` cho mọi cửa sổ đang ghim mỗi
+khi cửa sổ active thay đổi, nên widget đổi tầng ngay khi bấm `Win + D` hoặc
+click lại vào ứng dụng. Tham chiếu tới callback ctypes được giữ trong biến
+module (`_hook_proc_ref`) để không bị GC thu hồi.
+
+### 8.3 Các cạm bẫy phải xử lý ở tầng UI
 
 | Cạm bẫy | Cách xử lý trong `ui/widget_window.py` |
 |---|---|
-| **Toạ độ đổi gốc** sau `SetParent` | Lưu rect màn hình trước khi ghim; sau khi ghim đọc `GetWindowRect`, lệch thì `move()` bù (`_restore_screen_position`) |
-| **Đổi window flags khi đang ghim** làm Windows reset style ⇒ mất `WS_CHILD` | `_unpin_before_flag_change()` chạy trước mọi `setWindowFlags`, sau đó ghim lại |
-| **Explorer restart** ⇒ `Progman` bị tạo lại ⇒ cửa sổ con bị huỷ | Watchdog 2 giây: HWND chết → `hide()/show()` để Qt cấp HWND mới → ghim lại; 3 lần thất bại thì ngừng thử và ghi cảnh báo |
-| **Cửa sổ TRONG SUỐT bị mất hẳn khi thành cửa sổ con** (lỗi thực tế người dùng gặp: lịch biến mất nhưng vẫn click được menu) | Windows **không ghép kênh alpha từng điểm ảnh** cho cửa sổ con: phần trong suốt bị vẽ đè lên **nền đen**. Đo thực nghiệm: nền alpha 0.5 hiện `#7F0000` thay vì hồng trên desktop. Cách sửa: trước khi ghim phải **chuyển cửa sổ sang chế độ đục** (`WA_TranslucentBackground = False`, lề bóng = 0, `autoFillBackground` + palette = màu giấy đục) và phải **tạo lại native window** (`setWindowFlags`) vì thuộc tính trong suốt chỉ áp lúc tạo cửa sổ. Đo sau khi sửa: điểm ảnh vùng host 52 % màu giấy, 5,6 % chữ đậm, **0 % đen** ⇒ lịch hiện rõ. Hệ quả: khi ghim, widget luôn đục (không áp độ mờ nền); độ mờ nền vẫn dùng bình thường ở chế độ cửa sổ nổi. **Kèm theo:** khi ghim phải bỏ lề 10 px và tắt bóng đổ ở view (`BlocView.set_embedded(True)`) — nếu vẫn vẽ bóng, trên nền đục bóng sẽ thành **khung đen** quanh lịch. Ngoài ra app tự kiểm tra z-order sau khi ghim (có `SHELLDLL_DefView`/`WorkerW` nằm trên?) rồi nâng cửa sổ; nếu vẫn không thấy thì tự lùi về cửa sổ nổi để người dùng không bị mất lịch (`_ensure_pin_visible`) |
+| **Windows giấu/dời cửa sổ khi Show Desktop** (toạ độ `-32000`, cờ `SWP_HIDEWINDOW`) | `nativeEvent` bắt `WM_WINDOWPOSCHANGING` và gọi `desktop_pin.handle_windowposchanging()`: bỏ dời, đổi `SWP_HIDEWINDOW` thành `SWP_SHOWWINDOW`; nuốt `WM_SYSCOMMAND / SC_MINIMIZE` |
+| **Click/kéo làm widget nhảy lên trên app khác** | Cũng trong `handle_windowposchanging`: thông điệp không mang `SWP_NOSENDCHANGING` (tức không phải lệnh nội bộ) được thêm `SWP_NOZORDER` |
+| **Z-order bị xáo trộn theo thời gian** | Watchdog `_pin_timer` 2 giây (`_watch_pin`): ghim lại nếu `!is_pinned`, hiện lại bằng `SW_SHOWNOACTIVATE` nếu bị ẩn, gọi `update_z_order` |
+| **Đổi window flags khi đang ghim** (Qt tạo lại native window) | `_unpin_before_flag_change()` bỏ ghim và lưu toạ độ từ `GetWindowRect` trước mọi `setWindowFlags`, sau đó `_apply_placement()` ghim lại |
+| **"Luôn nổi" và "ghim" loại trừ nhau** | `set_always_on_top(True)` khi đang ghim thì tự chuyển `placement = "floating"` |
 
-Ngoài ra: `Qt.WindowDoesNotAcceptFocus` để không cướp focus, `Qt.Tool` để
-không có trong taskbar/Alt+Tab.
+Ngoài ra: `Qt.WindowDoesNotAcceptFocus` + `WA_ShowWithoutActivating` để
+không cướp focus, `Qt.Tool` để không có trong taskbar/Alt+Tab.
 
 ### 8.4 Độ trong suốt khi đã ghim
 
-`setWindowOpacity` chỉ tác dụng với cửa sổ **top-level**. Khi đã ghim, widget
-là cửa sổ con ⇒ dùng `QGraphicsOpacityEffect` cho phần nội dung:
+Không cần xử lý riêng: cửa sổ vẫn là top-level nên alpha từng điểm ảnh hoạt
+động như ở chế độ nổi. Độ mờ được nhúng vào **màu giấy** (xem §10.2), còn
+`_apply_opacity()` chỉ bảo đảm `windowOpacity = 1.0` và không có
+`QGraphicsOpacityEffect`:
 
 ```python
 def _apply_opacity(self) -> None:
-    opacity = max(0.2, min(1.0, float(self._settings.opacity)))
-    if self._pinned:                       # cửa sổ con
-        self.setWindowOpacity(1.0)
-        self._ensure_opacity_effect(opacity)
-    else:                                  # top-level
-        self.setWindowOpacity(opacity)
-        self._ensure_opacity_effect(None)
+    effect = self._stack.graphicsEffect()
+    if effect is not None:
+        self._stack.setGraphicsEffect(None)
+    self.setWindowOpacity(1.0)
 ```
 
 ---
@@ -841,7 +840,7 @@ vào bản đóng gói; nếu thiếu, ứng dụng vẫn chạy nhưng icon tr�
 | 5 | `lunar_precise.py`, `canchi.py`, `calendar_service.py` | ~1.000 | pytest tests/test_lunar_precise.py |
 | 6 | `config.py`, `quotes.py`, `data/quotes.json` | ~600 | pytest tests/test_config.py tests/test_quotes.py |
 | 7 | `platform/win32.py` | ~700 | `scripts/probe_desktop_pin.py` |
-| 8 | `platform/desktop_pin.py` | ~440 | dòng "parent_class = Progman" trong probe |
+| 8 | `platform/desktop_pin.py` | ~460 | `pytest tests/test_desktop_pin.py` + thử tay `Win + D` |
 | 9 | `platform/autostart.py`, `tray.py` | ~600 | `reg query HKCU\...\Run` |
 | 10 | `ui/widget_window.py` | ~700 | smoke + kéo thả tay |
 | 11 | `bloc_view.py`, `month_view.py`, `styles.py` | ~2.700 | ảnh trong `preview/` |

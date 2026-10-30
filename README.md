@@ -25,8 +25,8 @@ Tải bản phát hành mới nhất từ trang [GitHub Releases](https://github
 | **Lịch tháng** | Lưới 7 cột, mỗi ô hiển thị song song dương + âm lịch, hôm nay tô nổi bật, Chủ nhật/mùng 1/rằm/ngày lễ có màu riêng, chuyển tháng bằng ‹ › |
 | **Cửa sổ** | Không viền, kéo thả tự do, tự lưu toạ độ, tự kẹp vào màn hình, khoá vị trí |
 | **Kéo giãn** | Tay nắm ở góc dưới phải: kéo để phóng to/thu nhỏ (260×330 → 1000×1300), nội dung tự phóng theo kích thước, tự lưu kích thước; menu có "Đặt lại kích thước (344×468)" |
-| **Ghim Desktop** | `SetParent(Progman)` → sống sót qua `Win + D`, không có trong Alt+Tab; khi ghim widget tự chuyển sang **vẽ đục, phủ kín khung** (không bóng đổ) nên luôn hiện rõ; app tự kiểm tra bị lớp desktop che và nâng lên, hoặc tự lùi về cửa sổ nổi nếu không thể hiển thị |
-| **Độ mờ nền** | 20 % – 100 %, **chỉ nền giấy trong đi – chữ luôn đặc 100 %** nên vẫn đọc rõ trên mọi hình nền (ở chế độ ghim Desktop, widget luôn đục để bảo đảm nhìn thấy – xem Hạn chế #1) |
+| **Ghim Desktop** | Cơ chế kiểu Rainmeter: widget vẫn là cửa sổ cấp cao nhất nằm ở `HWND_BOTTOM` (dưới mọi ứng dụng, trên hình nền), cờ `WS_EX_TOOLWINDOW` + `WS_EX_NOACTIVATE` nên không có trong taskbar/Alt+Tab và không cướp focus; một cửa sổ *sentinel* vô hình phát hiện `Win + D` để nâng widget lên ngay dưới Taskbar; giữ nguyên nền trong suốt, góc bo và bóng đổ (không quầng đen) |
+| **Độ mờ nền** | 20 % – 100 %, **chỉ nền giấy trong đi – chữ luôn đặc 100 %** nên vẫn đọc rõ trên mọi hình nền; áp dụng cả ở chế độ cửa sổ nổi lẫn ghim Desktop |
 | **Màu nền** | 10 màu gợi ý + chọn màu tuỳ ý (bảng màu Windows) + "Theo giao diện"; nền tối tự chuyển chữ sang màu sáng để không mất chữ |
 | **Khay hệ thống** | Menu đầy đủ: hiện/ẩn, chế độ xem, độ mờ, ghim, luôn nổi, khoá vị trí, khởi động cùng Windows, về hôm nay, đặt lại vị trí, kiểm tra bản cập nhật, cài đặt, thoát |
 | **Tự động cập nhật** | Tự động kiểm tra bản mới từ GitHub Releases qua API, tải bản cập nhật ngầm an toàn có kiểm tra mã SHA-256, tự động hoán đổi tệp khi ứng dụng thoát hoặc khởi động lại ngay |
@@ -99,7 +99,7 @@ QTCalendar/
 │   │   └── types.py            #   dataclass bất biến
 │   ├── platform/               # Win32
 │   │   ├── win32.py            #   ctypes wrapper
-│   │   ├── desktop_pin.py      #   ghim Progman
+│   │   ├── desktop_pin.py      #   ghim Desktop kiểu Rainmeter (HWND_BOTTOM + sentinel)
 │   │   ├── autostart.py        #   Registry Run
 │   │   └── tray.py             #   QSystemTrayIcon + menu
 │   ├── ui/                     # PySide6
@@ -133,7 +133,7 @@ QTCalendar/
 
 | Hạng mục | Kết quả |
 |---|---|
-| Test | 499 passed, 7 xfailed (các ca khác biệt có chủ đích của engine HND) |
+| Test | 507 passed, 7 xfailed (các ca khác biệt có chủ đích của engine HND) |
 | Đối chứng âm lịch | 31/31 ngày Tết (1985–2040), 18/18 tháng nhuận, 109.938 ngày liên tục 1900–2200 **0 lỗi** |
 | Dựng lưới lịch tháng | ~0,8 ms cho 42 ô (cache nguội) |
 | Độ mờ nền | ảnh kiểm: 60 % → alpha nền 152/255, chữ vẫn 255/255 |
@@ -148,10 +148,13 @@ QTCalendar/
 
 ## Hạn chế đã biết
 
-1. **Đa màn hình**: `Progman` gắn với màn hình chính; widget ghim desktop nên
-   đặt ở màn hình chính. Chế độ "cửa sổ nổi" dùng được ở mọi màn hình.
-2. **Đổi "luôn nổi trên cùng" khi đang ghim**: ứng dụng tự bỏ ghim rồi ghim
-   lại (Windows reset style khi đổi window flags), có thể thấy nháy nhẹ.
+1. **Bật "luôn nổi trên cùng" khi đang ghim**: hai chế độ loại trừ nhau, nên
+   ứng dụng tự bỏ ghim và chuyển sang cửa sổ nổi (Qt tạo lại cửa sổ khi đổi
+   window flags), có thể thấy nháy nhẹ.
+2. **Phát hiện `Win + D`** dựa trên thứ tự Z của lớp Desktop (`Progman` trên
+   Windows 11 24H2+, `WorkerW` chứa `SHELLDLL_DefView` trên bản cũ) so với
+   cửa sổ sentinel. Nếu Explorer đổi cách tổ chức các lớp này ở bản Windows
+   sau, có thể cần cập nhật `desktop_pin.get_desktop_icons_host()`.
 3. **Engine Hồ Ngọc Đức gốc** sai 1 ngày ở một số tuần trăng hiếm (Tết 1991,
    05/2020, 03/2023, 08/2026, 04/2031) và sai tên tháng nhuận 2023, 2039 —
    đây là sai số của chuỗi Fourier rút gọn trong bản gốc. Mặc định dùng

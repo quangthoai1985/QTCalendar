@@ -45,7 +45,7 @@ E:\App\QTCalendar\
 │   ├── platform/               # tầng Win32
 │   │   ├── __init__.py         #   cờ IS_WINDOWS
 │   │   ├── win32.py            #   ctypes wrapper (user32/kernel32)
-│   │   ├── desktop_pin.py      #   ghim SetParent(Progman) + monitor()
+│   │   ├── desktop_pin.py      #   ghim kiểu Rainmeter (HWND_BOTTOM + sentinel) + monitor()
 │   │   ├── autostart.py        #   Registry HKCU Run
 │   │   └── tray.py             #   QSystemTrayIcon + 11 tín hiệu
 │   ├── ui/                     # giao diện PySide6
@@ -76,7 +76,7 @@ E:\App\QTCalendar\
 │   ├── audit_calendar.py       # CLI in bảng lịch tháng / cả năm âm lịch
 │   ├── preview_bloc.py         # render ảnh bloc 4 theme + tự kiểm bố cục
 │   ├── preview_paper.py        # ảnh minh hoạ độ mờ nền + màu nền
-│   ├── verify_pin_visibility.py# kiểm chứng lịch hiện rõ khi ghim desktop
+│   ├── verify_pin_visibility.py# (cũ, cơ chế SetParent) kiểm chứng lịch hiện rõ khi ghim
 │   ├── preview_month.py        # render ảnh lịch tháng + hộp thoại
 │   ├── probe_desktop_pin.py    # probe 3 pha cơ chế ghim desktop
 │   └── verify_live.py          # chạy app thật: HWND, style, RAM, autostart
@@ -192,8 +192,8 @@ trường `QTCALENDAR_CONFIG=<đường dẫn>` sẽ ép dùng tệp cụ thể.
 | `preview_bloc.py` | Render ảnh bloc (4 theme × 3 ngày × 8 mức kích thước + trạng thái), tự kiểm tràn chữ | `python -X utf8 scripts\preview_bloc.py --native` |
 | `preview_paper.py` | Render ảnh minh hoạ: độ mờ chỉ trên nền (chữ vẫn đặc) và 3 mức màu nền | `python -X utf8 scripts\preview_paper.py` |
 | `preview_month.py` | Render ảnh lịch tháng + 4 ảnh hộp thoại cài đặt | `python -X utf8 scripts\preview_month.py` |
-| `probe_desktop_pin.py` | Chứng minh cơ chế ghim 3 pha (Progman / host cùng tiến trình / xuyên tiến trình) | `python -X utf8 scripts\probe_desktop_pin.py` |
-| `verify_live.py` | Chạy app thật 3 giây: tìm HWND, đọc parent/class/style, đo RAM, thử autostart, chụp màn hình | `python -X utf8 scripts\verify_live.py` |
+| `probe_desktop_pin.py` | *(Cũ — viết cho cơ chế `SetParent` ≤ 1.0.0)* Chứng minh cơ chế ghim 3 pha (Progman / host cùng tiến trình / xuyên tiến trình) | `python -X utf8 scripts\probe_desktop_pin.py` |
+| `verify_live.py` | *(Phần kiểm tra ghim còn theo cơ chế `SetParent` cũ)* Chạy app thật 3 giây: tìm HWND, đọc parent/class/style, đo RAM, thử autostart, chụp màn hình | `python -X utf8 scripts\verify_live.py` |
 
 ---
 

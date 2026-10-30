@@ -11,7 +11,7 @@ Mục lục
 2. [Chọn công nghệ](#2-chọn-công-nghệ)
 3. [Kiến trúc phân tầng](#3-kiến-trúc-phân-tầng)
 4. [Cơ chế ghim sát Desktop](#4-cơ-chế-ghim-sát-desktop)
-5. [Độ trong suốt khi cửa sổ là cửa sổ con](#5-độ-trong-suốt-khi-cửa-sổ-là-cửa-sổ-con)
+5. [Độ trong suốt](#5-độ-trong-suốt)
 6. [Vòng đời ứng dụng và các timer](#6-vòng-đời-ứng-dụng-và-các-timer)
 7. [Ngân sách bộ nhớ](#7-ngân-sách-bộ-nhớ)
 8. [Kịch bản lỗi và cách xử lý](#8-kịch-bản-lỗi-và-cách-xử-lý)
@@ -42,12 +42,12 @@ Mục lục
 
 | Ràng buộc | Cách đáp ứng |
 |---|---|
-| Windows 10/11 | Chỉ dùng API có từ Win7+ (`SetParent`, `Progman 0x052C`), test trên Win11 25H2 |
+| Windows 10/11 | Chỉ dùng API có từ Win7+ (`SetWindowPos`, `SetWinEventHook`, `FindWindowEx`), test trên Win11 25H2 |
 | **RAM < 60 MB khi chạy ngầm** | Đo thực: xem §7 |
 | Nhẹ, khởi động nhanh | Không dùng QML/WebEngine, không ORM, không framework DI |
 | Không cần quyền admin | Mọi thao tác đều ở `HKCU` và desktop window của chính user |
 | Cấu hình không bao giờ làm hỏng app | Clamp giá trị, backup tệp lỗi, ghi nguyên tử |
-| Chạy được khi Explorer khởi động lại | Watchdog ghim lại – xem §4.4 |
+| Chạy được khi Explorer khởi động lại | Widget là cửa sổ top-level của chính app + watchdog – xem §4.4 |
 
 ---
 
@@ -62,7 +62,7 @@ Mục lục
 | RAM khi chạy ngầm (đo thực tế) | ~35–50 MB | **~45–55 MB** (đo: nền 44,6 MB) | ~25–40 MB (nhưng + process WebView2 riêng ~60–100 MB) |
 | Kích thước phát hành | ~70 MB self-contained / ~2 MB nếu máy có runtime | ~150 MB (PySide6) hoặc ~35 MB khi PyInstaller | ~8 MB |
 | Thời gian phát triển UI tuỳ biến | Trung bình (XAML) | **Nhanh** (QSS giống CSS) | Chậm cho desktop-native (WebView chạy nền tảng web) |
-| Gọi Win32 (SetParent, Registry) | Rất tốt (P/Invoke) | **Rất tốt (ctypes)** | Tốt nhưng phải viết lớp Rust |
+| Gọi Win32 (SetWindowPos, Registry) | Rất tốt (P/Invoke) | **Rất tốt (ctypes)** | Tốt nhưng phải viết lớp Rust |
 | Không viền / trong suốt / khay | Có sẵn | Có sẵn | Phải tự dựng thêm plugin |
 | Yêu cầu môi trường để **build** | Cần .NET 8 SDK (~200 MB) | Cần Python + PySide6 | Cần Rust toolchain + Node |
 | Khả dụng trên máy phát triển | ❌ **Không có SDK, không có mạng để tải** | ✅ **Đã cài sẵn Python 3.14 + PySide6 6.11.2** | ❌ Không có Rust |
@@ -77,7 +77,7 @@ Mục lục
    ngay, và toàn bộ mã nguồn được kiểm chứng bằng cách chạy thật.
 2. **Đạt ngân sách RAM**: đo trên máy thật, một cửa sổ Qt widget cơ bản tốn
    **44,6 MB working set / 21,8 MB private** – nằm dưới mốc 60 MB (§7).
-3. **Win32 interop đầy đủ** bằng `ctypes`: `SetParent`, `SendMessageTimeout`,
+3. **Win32 interop đầy đủ** bằng `ctypes`: `SetWindowPos`, `SetWinEventHook`,
    `FindWindowEx`, `winreg` – không thiếu thứ gì so với P/Invoke của C#.
 4. **Tốc độ phát triển UI**: QSS (gần như CSS) cho phép tạo "giấy – mực –
    đỏ" nhanh hơn XAML, và vẽ tay bằng `QPainter` cho kết quả thẩm mỹ cao hơn
@@ -85,7 +85,7 @@ Mục lục
 
 > Nếu đội phát triển có .NET 8 SDK, **WPF là lựa chọn tương đương** và có
 > RAM thấp hơn chút. Kiến trúc trong tài liệu này (4 tầng, `settings.json`,
-> `SetParent(Progman)`, Registry Run) chuyển sang C# gần như 1-1.
+> ghim Desktop kiểu Rainmeter, Registry Run) chuyển sang C# gần như 1-1.
 
 ### 2.3 Phiên bản / phụ thuộc
 
@@ -111,7 +111,7 @@ pytest  8.x             (chỉ dùng khi test)
      ┌──────────▼───────────┐        ┌─────────▼──────────────┐
      │      ui/ (PySide6)   │        │  platform/ (Win32+Qt)  │
      │ widget_window        │        │ win32       (ctypes)   │
-     │ bloc_view  month_view│        │ desktop_pin (Progman)  │
+     │ bloc_view  month_view│        │ desktop_pin (Rainmeter)│
      │ settings_dialog      │        │ autostart   (Registry) │
      │ styles (QSS builder) │        │ tray        (QSystemTrayIcon)
      └──────────┬───────────┘        └─────────┬──────────────┘
@@ -173,92 +173,125 @@ thể cache thoải mái (`lru_cache`) mà không sợ view sửa vào. Lưới 
 
 ## 4. Cơ chế ghim sát Desktop
 
-Đây là yêu cầu khó nhất và cũng là phần dễ làm sai nhất.
+Đây là yêu cầu khó nhất và cũng là phần dễ làm sai nhất. Từ bản 1.0.1 (hoàn
+thiện ở 1.0.2), dự án dùng **cơ chế kiểu Rainmeter**: widget **vẫn là cửa sổ
+cấp cao nhất**, không gắn làm cửa sổ con của desktop nữa.
 
 ### 4.1 Vì sao cửa sổ thường bị ẩn khi nhấn Win + D?
 
-`Win + D` (Show Desktop) gọi `IShellDispatch::ToggleDesktop`. Windows thực
-hiện bằng cách **liệt kê toàn bộ cửa sổ cấp cao nhất** (`EnumWindows`) rồi
-thu nhỏ/ẩn chúng. Cửa sổ *con* (child window) **không** nằm trong danh sách
-đó ⇒ không bị ẩn.
+`Win + D` (Show Desktop) không thu nhỏ từng ứng dụng mà **nâng lớp Desktop**
+của Explorer lên trên mọi cửa sổ thường. Lớp Desktop là:
+
+* `Progman` (chứa trực tiếp `SHELLDLL_DefView`) trên Windows 11 24H2 trở đi;
+* `WorkerW` có con `SHELLDLL_DefView` trên Windows 10/11 bản cũ hơn.
+
+Trong lúc đó Windows còn gửi cho cửa sổ các lệnh dời ra toạ độ
+`(-32000, -32000)` hoặc cờ `SWP_HIDEWINDOW`. Một cửa sổ bình thường vì thế
+hoặc bị che, hoặc bị giấu đi.
 
 Ngoài ra cửa sổ cấp cao nhất còn xuất hiện trong Alt+Tab và taskbar — một
 desktop widget thì không nên.
 
-### 4.2 Giải pháp: biến widget thành cửa sổ con của desktop
+### 4.2 Giải pháp: cửa sổ top-level ở đáy Z-order + sentinel
 
 ```python
 # src/qtcalendar/platform/desktop_pin.py  (rút gọn)
-progman = FindWindowW("Progman", None)
-SendMessageTimeoutW(progman, 0x052C, 0, 0, SMTO_ABORTIFHUNG, 1000, byref(res))
-host = _find_desktop_host()          # Progman, hoặc WorkerW có con SHELLDLL_DefView
-old_style = GetWindowLongW(hwnd, GWL_STYLE)
-SetParent(hwnd, host)                # ← biến thành cửa sổ con của desktop
-SetWindowLongW(hwnd, GWL_STYLE, (old_style | WS_CHILD) & ~WS_POPUP)
-SetWindowPos(hwnd, HWND_TOP, x, y, w, h, SWP_NOACTIVATE | SWP_SHOWWINDOW)
+def pin(hwnd):
+    exstyle = GetWindowLong(hwnd, GWL_EXSTYLE)
+    SetWindowLong(hwnd, GWL_EXSTYLE, exstyle | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE)
+    _ensure_sentinel()        # cửa sổ STATIC 1×1 vô hình, đặt ở HWND_BOTTOM
+    _setup_event_hook()       # SetWinEventHook(EVENT_SYSTEM_FOREGROUND)
+    update_z_order(hwnd)
+
+def update_z_order(hwnd):
+    if is_show_desktop_active():                 # đang Win + D
+        SetWindowPos(hwnd, HWND_TOPMOST, ...)    # nổi trên lớp Desktop
+        SetWindowPos(hwnd, taskbar, ...)         # nhưng nằm dưới Taskbar
+    else:
+        SetWindowPos(hwnd, HWND_BOTTOM, ...)     # dưới mọi app, trên hình nền
 ```
 
-Vì sao phải gửi `0x052C` cho `Progman`: trên Windows 10/11, Explorer chỉ tạo
-cửa sổ `WorkerW` (lớp chứa hình nền/icon) **khi được yêu cầu**; thông điệp
-không tài liệu `0x052C` chính là yêu cầu đó. Nếu bỏ qua bước này, trên một
-số máy `SHELLDLL_DefView` chưa tồn tại ⇒ không tìm được host.
+Mọi lệnh `SetWindowPos` nội bộ dùng cờ `SWP_NOSENDCHANGING` để không tự
+kích hoạt bộ lọc `WM_WINDOWPOSCHANGING` ở dưới.
 
-### 4.3 Các phương án đã cân nhắc và loại
+**Phát hiện Show Desktop** (`is_show_desktop_active`), theo đúng thuật toán
+Rainmeter:
+
+1. Sentinel nằm ở `HWND_BOTTOM`. Bình thường lớp Desktop ở dưới sentinel.
+2. Khi `Win + D`, Explorer nâng lớp Desktop lên ⇒ tìm cửa sổ *đứng sau* lớp
+   Desktop trong Z-order (`FindWindowEx(0, host, "STATIC", "QTCalendarSystem")`)
+   mà gặp sentinel ⇒ đang Show Desktop.
+3. Bổ sung: nếu cửa sổ foreground chính là lớp Desktop (hoặc con của nó) thì
+   cũng coi là Show Desktop.
+
+**Phản ứng tức thì**: hook `EVENT_SYSTEM_FOREGROUND` (out-of-context, bỏ qua
+tiến trình của chính mình) gọi `update_z_order` mỗi khi đổi cửa sổ active,
+nên bấm `Win + D` hay click lại vào ứng dụng thì widget đổi tầng ngay, không
+phải chờ timer.
+
+**Chặn thông điệp** trong `CalendarWidget.nativeEvent` khi đang ghim:
+
+| Thông điệp | Xử lý (`handle_windowposchanging`) |
+|---|---|
+| `WM_WINDOWPOSCHANGING` không mang `SWP_NOSENDCHANGING` (click, kéo thả) | thêm `SWP_NOZORDER` ⇒ click không làm widget nhảy lên trên các app |
+| Toạ độ `≤ -30000` | thêm `SWP_NOMOVE \| SWP_NOSIZE` ⇒ không bị dời ra ngoài màn hình |
+| Cờ `SWP_HIDEWINDOW` | đổi thành `SWP_SHOWWINDOW` ⇒ không bị giấu |
+| `WM_SYSCOMMAND / SC_MINIMIZE` | nuốt luôn ⇒ không bị thu nhỏ |
+
+### 4.3 Các phương án đã thử và loại
 
 | Phương án | Vì sao loại |
 |---|---|
-| `HWND_TOPMOST` (luôn nổi) | Không phải "ghim sát mặt bàn": vẫn đè lên mọi cửa sổ, và **vẫn bị ẩn bởi Win+D** |
-| `SetWindowPos(HWND_BOTTOM)` mỗi lần | Vẫn là top-level ⇒ vẫn bị Win+D ẩn; còn phải liên tục đẩy xuống |
-| Hook bàn phím bắt Win+D rồi hiện lại | Cần hook toàn cục (dễ bị antivirus/Accessibility chặn), giật hình, không sạch |
-| `SetWindowDisplayAffinity` | Chỉ dùng cho chống chụp màn hình, không liên quan |
-| **`SetParent(Progman)`** | ✅ Sạch, không hook, không quyền admin, sống sót Win+D |
-| `SetParent(WorkerW)` | ✅ Dùng làm **fallback** khi `Progman` không có `DefView` |
+| `HWND_TOPMOST` (luôn nổi) | Không phải "ghim sát mặt bàn": đè lên mọi cửa sổ |
+| Chỉ `SetWindowPos(HWND_BOTTOM)` | Không có sentinel ⇒ không biết khi nào `Win + D`, widget bị lớp Desktop che |
+| Hook bàn phím bắt Win+D | Hook toàn cục dễ bị antivirus chặn, không bắt được các cách Show Desktop khác (ví dụ nút ở góc phải taskbar) |
+| `SetParent(Progman / WorkerW)` (bản ≤ 1.0.0) | Sống sót qua Win+D nhưng: cửa sổ con không ghép alpha từng điểm ảnh ⇒ phải vẽ **đục**, mất góc bo/bóng đổ, có quầng đen; bị UIPI chặn khi Explorer khác integrity level; gắn với màn hình chính; Explorer khởi động lại là mất cửa sổ |
+| **Top-level `HWND_BOTTOM` + sentinel + WinEvent hook** | ✅ Giữ `WA_TranslucentBackground`, không cần quyền admin, không hook bàn phím, hoạt động trên mọi màn hình |
 
-Dự án triển khai **cả hai** mức: mặc định ghim `Progman`; nếu không tìm thấy
-thì tìm `WorkerW` có con `SHELLDLL_DefView`. Người dùng vẫn bật được chế độ
-"cửa sổ nổi + luôn trên cùng" (`placement = "floating"`) trong Cài đặt.
+Người dùng vẫn chọn được chế độ "cửa sổ nổi + luôn trên cùng"
+(`placement = "floating"`) trong Cài đặt.
 
 ### 4.4 Các cạm bẫy đã xử lý
 
 | Cạm bẫy | Cách xử lý |
 |---|---|
-| **Toạ độ đổi gốc** sau `SetParent` | Lưu toạ độ màn hình trước khi ghim; sau khi ghim đọc `GetWindowRect`, nếu lệch thì `move()` bù lại (`_restore_screen_position`) |
-| **Explorer khởi động lại** ⇒ `Progman` bị huỷ ⇒ cửa sổ con bị huỷ theo | Watchdog `QTimer` 2 giây: nếu `!is_pinned(hwnd)` thì ghim lại; nếu HWND đã chết thì báo lỗi và tạo lại cửa sổ |
-| **Mất focus của ứng dụng khác** | Cờ `Qt.WindowDoesNotAcceptFocus` + `WS_EX_NOACTIVATE` |
+| **Click/kéo làm widget nhảy lên trên app khác** | `SWP_NOZORDER` trong `WM_WINDOWPOSCHANGING` (§4.2) |
+| **Z-order bị app khác hoặc Explorer xáo trộn** | Watchdog `QTimer` 2 giây (`_watch_pin`): ghim lại nếu `!is_pinned(hwnd)`, hiện lại nếu bị ẩn (`SW_SHOWNOACTIVATE`), gọi lại `update_z_order` |
+| **Explorer khởi động lại** | Widget và sentinel là cửa sổ của chính app nên không bị huỷ theo; `get_desktop_icons_host()` tìm lại lớp Desktop mới ở lần kiểm tra kế tiếp |
+| **Mất focus của ứng dụng khác** | `Qt.WindowDoesNotAcceptFocus` + `WA_ShowWithoutActivating` + `WS_EX_NOACTIVATE` |
 | **Hiện trong Alt+Tab / taskbar** | `Qt.Tool` + `WS_EX_TOOLWINDOW` |
+| **Bỏ ghim** | `unpin()` khôi phục `GWL_EXSTYLE` đã lưu, đặt `HWND_NOTOPMOST`; khi không còn cửa sổ ghim nào thì gỡ hook và huỷ sentinel |
+| **Đổi window flags khi đang ghim** | Qt tạo lại cửa sổ ⇒ `_unpin_before_flag_change()` bỏ ghim và lưu toạ độ trước, rồi ghim lại sau |
 | **DPI scaling** | Qt 6 tự xử lý DPI theo monitor; cửa sổ được tạo là per-monitor-aware |
-| **Đa màn hình** | `Progman` phủ toàn bộ vùng màn hình ảo, gốc toạ độ trùng gốc màn hình ảo ⇒ toạ độ Qt dùng được trực tiếp; vẫn có bước bù lệch bằng `GetWindowRect` |
+| **Đa màn hình** | Cửa sổ top-level dùng toạ độ màn hình ảo trực tiếp ⇒ ghim được ở mọi màn hình |
 | **Kẹp cửa sổ vào màn hình** | Sau mỗi lần thả chuột: `_clamp_into_screen()` theo `availableGeometry()` |
 
 ---
 
-## 5. Độ trong suốt khi cửa sổ là cửa sổ con
+## 5. Độ trong suốt
 
-`QWidget.setWindowOpacity()` trên Windows hoạt động bằng
-`SetLayeredWindowAttributes` — chỉ có tác dụng với **cửa sổ cấp cao nhất**
-(`WS_EX_LAYERED` không áp dụng cho cửa sổ con). Sau khi ghim desktop, widget
-trở thành cửa sổ con ⇒ `setWindowOpacity` **mất tác dụng**.
+Vì widget luôn là cửa sổ cấp cao nhất (cả khi nổi lẫn khi ghim), Qt tự quản
+lý `WS_EX_LAYERED` + `UpdateLayeredWindow` cho cửa sổ có
+`WA_TranslucentBackground`, tức là **alpha từng điểm ảnh**.
 
-Giải pháp lai:
+Dự án **không** dùng `setWindowOpacity()` (nó làm mờ cả chữ) cũng như
+`QGraphicsOpacityEffect`:
 
 ```python
 def _apply_opacity(self) -> None:
-    opacity = clamp(self._settings.opacity, 0.2, 1.0)
-    if self._pinned:                       # cửa sổ con → dùng effect
-        self.setWindowOpacity(1.0)
-        self._ensure_opacity_effect(opacity)      # QGraphicsOpacityEffect
-    else:                                  # cửa sổ top-level → API gốc
-        self.setWindowOpacity(opacity)
-        self._ensure_opacity_effect(None)
+    effect = self._stack.graphicsEffect()
+    if effect is not None:
+        self._stack.setGraphicsEffect(None)
+    self.setWindowOpacity(1.0)
+
+def _paper_opacity(self) -> float:
+    """Độ mờ áp vào **màu giấy** (nền trong suốt, chữ đục 100%)."""
+    return float(self._settings.opacity)
 ```
 
-`QGraphicsOpacityEffect` chỉ gắn lên `QStackedWidget` (một lần), nên chi phí
-chỉ là một phép composite khi vẽ lại – không đáng kể vì widget chỉ vẽ lại
-khi đổi ngày/đổi theme/kéo thả.
-
-Hệ quả cần biết: khi đang ghim desktop, độ mờ do **nội dung** đảm nhận, nên
-phần bóng đổ quanh tấm giấy vẫn đậm hơn một chút so với chế độ nổi. Đây là
-đánh đổi có chủ ý.
+Độ mờ 20–100 % được nhúng thẳng vào **màu nền giấy** khi vẽ; chữ và chip
+là widget con vẽ sau nên luôn đục 100 %. Kết quả giống nhau ở cả hai chế độ:
+góc bo tròn trong suốt, bóng đổ giấy giữ nguyên, không quầng đen viền.
 
 ---
 
@@ -356,7 +389,7 @@ native/C++; kiến trúc trong tài liệu này chuyển sang đó gần như 1-
 | `settings.json` hỏng (JSON sai) | Sao lưu thành `settings.corrupt-<ts>.json`, chạy với mặc định | `ConfigStore.load` |
 | Không có quyền ghi Registry | Checkbox tự bật lại theo trạng thái thật, app vẫn chạy | `autostart.set_enabled → bool` |
 | Không có khay hệ thống | Chạy không có tray, log cảnh báo, widget vẫn dùng được qua menu chuột phải | `AppController._build_tray` |
-| Explorer khởi động lại | Widget được ghim lại sau ≤ 2 giây | `_watch_pin` |
+| Explorer khởi động lại | Widget không mất; Z-order được đặt lại sau ≤ 2 giây | `_watch_pin` |
 | Máy đổi DPI / cắm thêm màn hình | Qt tự scale; vị trí được kẹp lại vào màn hình khi thả chuột | `_clamp_into_screen` |
 | Hai bản chạy cùng lúc | Bản thứ hai tự thoát | `QLockFile` |
 | Thiếu `assets/icon.ico` | Dùng icon rỗng, không crash | `icon_path()` trả `Path` không tồn tại → `is_file()` check |
@@ -369,7 +402,7 @@ native/C++; kiến trúc trong tài liệu này chuyển sang đó gần như 1-
 | # | Tiêu chí | Cách kiểm |
 |---|---|---|
 | A1 | Chạy được bằng `pythonw run_qtcalendar.pyw`, không console | chạy thật |
-| A2 | Widget hiện dưới icon desktop, **vẫn thấy sau Win + D** | thử tay: bấm Win+D |
+| A2 | Widget nằm dưới mọi ứng dụng, **vẫn thấy sau Win + D** và không che Taskbar | thử tay: bấm Win+D, click app khác |
 | A3 | Kéo thả được; khởi động lại đúng vị trí | kéo rồi thoát, mở lại |
 | A4 | Opacity 20–100 % có tác dụng (cả khi ghim) | chỉnh slider + menu |
 | A5 | Khay hệ thống có đủ menu, tick đồng bộ | mở menu |

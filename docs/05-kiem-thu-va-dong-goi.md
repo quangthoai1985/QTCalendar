@@ -55,7 +55,8 @@ $ python -X utf8 -m pytest tests -q
 | `test_holidays.py` | 38 | bảng lễ Dương + Âm, ưu tiên, tháng nhuận không tính lễ |
 | `test_audit_calendar.py` | 20 | CLI audit: bố cục bảng, `--year`, `--engine`, tháng nhuận |
 | `test_quotes.py` | 26 | kho ca dao: số lượng, không trùng, UTF-8, ổn định theo ngày |
-| `test_widget_window.py` | 14 | kéo giãn cửa sổ (delta, kẹp min/max, lưu kích thước) + **chế độ ghim phải vẽ đục** |
+| `test_widget_window.py` | 14 | kéo giãn cửa sổ (delta, kẹp min/max, lưu kích thước) + **chế độ ghim giữ nền trong suốt, không quầng đen** |
+| `test_desktop_pin.py` | 7 | `handle_windowposchanging` (chống dời `-32000`, chống `SWP_HIDEWINDOW`, `SWP_NOZORDER` khi click, cho phép lệnh nội bộ), `pin`/`unpin`, `update_z_order` khi Show Desktop và bình thường |
 | `test_theme_paper.py` | 15 | độ mờ chỉ ở nền (chữ đặc), màu nền tuỳ chọn, `bg_color` lưu/đọc |
 
 ### 7 xfail — khác biệt **có chủ đích** của engine Hồ Ngọc Đức gốc
@@ -147,6 +148,14 @@ lần đầu) và tiêu đề tháng **không** elide bằng `QFontMetrics` lúc
 
 ## 5. Kiểm chứng "sống" trên Windows
 
+> **Lưu ý (từ bản 1.0.1):** §5.1 – §5.3 ghi lại kết quả đo của cơ chế ghim
+> cũ `SetParent(Progman)` (bản ≤ 1.0.0). Cơ chế hiện tại là cửa sổ top-level
+> kiểu Rainmeter (xem `docs/01-kien-truc.md` §4), không gọi `SetParent` nên
+> không còn bị UIPI chặn. Các script `verify_live.py`, `probe_desktop_pin.py`
+> và `verify_pin_visibility.py` **vẫn kiểm tra theo cơ chế cũ** (mong đợi
+> `ws_child = true`, `parent_class = "Progman"`) nên kết quả của chúng không
+> còn phản ánh đúng; cần viết lại trước khi dùng làm tiêu chí phát hành.
+
 ### 5.1 `scripts/verify_live.py`
 
 Chạy ứng dụng thật với `settings.json` tạm, chờ 3 giây rồi đo:
@@ -216,14 +225,12 @@ python -X utf8 scripts\verify_live.py            # mong đợi: parent_class = "
 
 | # | Hạn chế | Ảnh hưởng | Hướng xử lý |
 |---|---|---|---|
-| 1 | `Progman` gắn màn hình chính | ghim desktop chỉ đúng trên màn hình chính | chế độ "cửa sổ nổi" dùng được mọi màn hình; hỗ trợ WorkerW từng màn hình là việc tương lai |
-| 2 | Đổi window flags khi đang ghim làm mất `WS_CHILD` | nháy nhẹ khi bật "luôn nổi" | đã unpin trước khi đổi cờ; watchdog 2 s là lưới an toàn |
-| 3 | Explorer restart có thể huỷ HWND của cửa sổ con | widget biến mất tới khi watchdog tạo lại | watchdog `hide()/show()` + ghim lại; nếu thất bại 3 lần → chuyển cửa sổ nổi + ghi log |
+| 1 | Phát hiện `Win + D` dựa vào thứ tự Z của lớp Desktop (`Progman`/`WorkerW`) so với sentinel | nếu Explorer đổi cấu trúc lớp Desktop ở bản Windows mới, widget có thể bị che khi Show Desktop | cập nhật `get_desktop_icons_host()`; watchdog 2 s và hook foreground là lưới an toàn |
+| 2 | Đổi window flags khi đang ghim làm Qt tạo lại native window | nháy nhẹ khi bật "luôn nổi" (tự chuyển sang cửa sổ nổi) | đã unpin trước khi đổi cờ; watchdog 2 s là lưới an toàn |
+| 3 | Các script kiểm chứng sống còn theo cơ chế `SetParent` cũ | không dùng được làm bằng chứng cho bản ≥ 1.0.1 | viết lại `verify_live.py`/`verify_pin_visibility.py` theo cơ chế mới |
 | 4 | Không ghi được Registry trong sandbox | không tự bật được autostart khi chạy trong agent | chạy từ terminal thường; code đã xử lý lỗi (trả `False`, app vẫn chạy) |
 | 5 | Engine HND gốc sai 7 ca (bảng §2) | chỉ khi người dùng chọn engine `hnd` | mặc định `precise`; ghi rõ trong hộp thoại |
 | 6 | RAM 82 MB > mục tiêu 60 MB | – | xem §4 |
-| 7 | Ở chế độ ghim Desktop, widget luôn đục (không áp độ mờ nền) | độ mờ 20–100 % chỉ có tác dụng ở chế độ cửa sổ nổi | giới hạn của Windows: cửa sổ con không ghép alpha từng điểm ảnh; muốn có phải tự đẩy ảnh qua `UpdateLayeredWindow` (chưa làm) |
-| 8 | Một số cấu hình Explorer/Win11 nâng lớp hình nền lên che cửa sổ con | lịch có thể bị che sau khi ghim | app tự kiểm z-order mỗi 2 giây, nâng cửa sổ lên `HWND_TOP`; nếu vẫn bị che thì tự lùi về cửa sổ nổi và báo log |
 
 ---
 
@@ -264,14 +271,13 @@ Ghi chú:
 
 ### 7.3 Danh sách kiểm tra trước khi phát hành
 
-- [ ] `python -X utf8 -m pytest tests -q` xanh (492 passed / 7 xfailed).
+- [ ] `python -X utf8 -m pytest tests -q` xanh (507 passed / 7 xfailed).
 - [ ] `python run_qtcalendar.pyw --smoke out.png` cả hai chế độ xem, exit 0.
-- [ ] Chạy từ terminal thường: `verify_live.py` báo `parent_class = "Progman"`,
-      `ws_child = true`.
-- [ ] Chạy `python -X utf8 scripts\verify_pin_visibility.py` → exit 0
-      ("LỊCH HIỆN RÕ khi ở chế độ ghim").
-- [ ] Ở chế độ ghim: lịch **hiện rõ trên desktop**, nhấn `Win + D` vẫn còn,
-      chuột phải ra menu của ứng dụng (không còn cảnh lịch biến mất).
+- [ ] Ở chế độ ghim: lịch **nằm dưới mọi ứng dụng**, nền trong suốt, góc bo
+      không có quầng đen; không có trong taskbar/Alt+Tab.
+- [ ] Nhấn `Win + D`: lịch vẫn hiện, nằm dưới Taskbar; click lại một ứng
+      dụng thì lịch lùi về sau ứng dụng đó.
+- [ ] Click/kéo lịch khi đang ghim không làm lịch nhảy lên trên các cửa sổ khác.
 - [ ] Kéo widget, thoát, mở lại → đúng vị trí.
 - [ ] Bật "Khởi động cùng Windows" → `reg query HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v QTCalendar`.
 - [ ] Đổi 4 theme, độ mờ 20 %/100 %, chuyển ngày/tháng, bấm ca dao để đổi câu.
