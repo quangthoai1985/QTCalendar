@@ -137,7 +137,8 @@ class Theme:
     radius: int = 14
     font_ui: str = "Segoe UI"
     font_display: str = "Segoe UI Black"
-    font_quote: str = "Georgia"
+    # Georgia thiếu ơ, ư, ạ, ố… → Qt mượn glyph font khác, dấu lệch, chữ dính.
+    font_quote: str = "Palatino Linotype"
 
     @property
     def is_dark(self) -> bool:

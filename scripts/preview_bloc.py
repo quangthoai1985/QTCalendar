@@ -15,7 +15,7 @@ Cách chạy (từ gốc dự án)::
     python -X utf8 scripts/preview_bloc.py --native   # render bằng nền tảng thật
 
 Ở chế độ mặc định script đặt ``QT_QPA_PLATFORM=offscreen`` (không cần cửa sổ
-thật) và tự nạp font hệ thống Windows (Segoe UI, Georgia) vì QPA offscreen
+thật) và tự nạp font hệ thống Windows (Segoe UI, Palatino Linotype) vì QPA offscreen
 không đọc được font hệ thống.
 """
 
@@ -126,10 +126,10 @@ _WINDOWS_FONT_FILES: tuple[str, ...] = (
     "seguibli.ttf",
     "seguisb.ttf",
     "seguisbi.ttf",
-    "georgia.ttf",
-    "georgiab.ttf",
-    "georgiai.ttf",
-    "georgiaz.ttf",
+    "pala.ttf",
+    "palab.ttf",
+    "palai.ttf",
+    "palabi.ttf",
 )
 
 
@@ -162,7 +162,7 @@ def _ensure_system_fonts() -> list[str]:
     from PySide6.QtGui import QFontDatabase
 
     families = set(QFontDatabase.families())
-    if {"Segoe UI", "Georgia"} <= families:
+    if {"Segoe UI", "Palatino Linotype"} <= families:
         return []
     loaded: list[str] = []
     fonts_dir = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts"
@@ -187,7 +187,7 @@ def _prepare_app(native: bool):
     print(f"[preview] platform={mode}" + (" (font nạp thêm: " + ", ".join(loaded) + ")" if loaded else ""))
     if mode == "offscreen" and not _ensure_fonts_ok():
         print(
-            "[preview] CẢNH BÁO: thiếu font Segoe UI/Georgia – ảnh có thể không "
+            "[preview] CẢNH BÁO: thiếu font Segoe UI/Palatino Linotype – ảnh có thể không "
             "đúng typography.",
             file=sys.stderr,
         )
@@ -199,7 +199,7 @@ def _ensure_fonts_ok() -> bool:
     from PySide6.QtGui import QFontDatabase
 
     families = set(QFontDatabase.families())
-    return "Segoe UI" in families and "Georgia" in families
+    return "Segoe UI" in families and "Palatino Linotype" in families
 
 
 def _quote_for(index: int, day: date):

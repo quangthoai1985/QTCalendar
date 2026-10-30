@@ -220,7 +220,7 @@ class _TopArtBanner(QWidget):
         self._accent_2 = QColor("#C9975B")
         self._line = QColor("#E2D7C5")
         self._ink_soft = QColor("#6E645A")
-        self._font = QFont("Georgia", 10)
+        self._font = QFont(get_theme(None).font_quote, 10)
         self._font.setItalic(True)
 
     def configure(
