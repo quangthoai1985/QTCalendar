@@ -15,7 +15,7 @@ Bố cục
     │ └────┴────┴────┴────┴────┴────┴────┘      │
     │              … 5–6 hàng …                 │
     │  ● Hôm nay: 28/10/2026 · 19/9 Bính Ngọ    │  chú thích chân
-    │                        [Ngày]  [Hôm nay]  │  BlocSwitchButton + TodayButton
+    │                              [Hôm nay]    │  TodayButton
     └───────────────────────────────────────────┘
 
 Hợp đồng API
@@ -36,13 +36,15 @@ Hợp đồng API
 ``go_today()``  /  ``step_month(delta: int)``
 ``set_show_lunar(flag: bool)``
     Cho phép ẩn dòng ngày âm.
+``set_selected(day: datetime.date | None)`` / ``selected()``
+    Ngày đang xem ở lịch bloc phía trên – ô đó được viền nhấn (trừ khi trùng
+    hôm nay, vì ô hôm nay đã tô đầy màu).
 
 Tín hiệu:
 
 * ``day_activated(object)`` – phát ``datetime.date`` khi người dùng bấm một ô.
 * ``month_changed(int, int)`` – phát ``(năm, tháng)`` sau mỗi lần đổi tháng.
 * ``today_requested()`` – nút "hôm nay".
-* ``bloc_requested()`` – nút "Ngày": xin quay về lịch ngày (lịch bloc).
 
 Yêu cầu thẩm mỹ
 ---------------
@@ -244,7 +246,7 @@ def _month_qss(theme: Theme, scale: float) -> str:
             ),
             f"QPushButton#NavButton:pressed {{ background: {theme.chip_bg}; }}",
             (
-                "QPushButton#TodayButton, QPushButton#BlocSwitchButton {"
+                "QPushButton#TodayButton {"
                 f" color: {theme.chip_ink}; background: {theme.chip_bg};"
                 f" border: 1px solid {theme.line};"
                 f" border-radius: {_px(11, sm)}px;"
@@ -252,13 +254,12 @@ def _month_qss(theme: Theme, scale: float) -> str:
                 f" font-size: {_px(10, st)}px; font-weight: bold; }}"
             ),
             (
-                "QPushButton#TodayButton:hover, QPushButton#BlocSwitchButton:hover {"
+                "QPushButton#TodayButton:hover {"
                 f" color: {theme.accent}; background: {theme.hover_bg};"
                 f" border-color: {hover_border}; }}"
             ),
             (
-                "QPushButton#TodayButton:pressed,"
-                f" QPushButton#BlocSwitchButton:pressed {{"
+                "QPushButton#TodayButton:pressed {"
                 f" background: {theme.chip_bg}; }}"
             ),
         ]
@@ -286,6 +287,7 @@ class _DayCell(QWidget):
         self._theme: Theme = get_theme(None)
         self._scale = 1.0
         self._today: date | None = None
+        self._selected: date | None = None
         self._in_month = True
         self._show_lunar = True
         self._hover = False
@@ -302,11 +304,13 @@ class _DayCell(QWidget):
         in_month: bool,
         show_lunar: bool,
         index: int,
+        selected: date | None = None,
     ) -> None:
         self._info = info
         self._theme = theme
         self._scale = _scale_of(scale)
         self._today = today
+        self._selected = selected
         self._in_month = bool(in_month)
         self._show_lunar = bool(show_lunar)
         self._index = index
@@ -322,6 +326,17 @@ class _DayCell(QWidget):
     def set_today_ref(self, day: date | None) -> None:
         self._today = day
         self.update()
+
+    def set_selected_ref(self, day: date | None) -> None:
+        self._selected = day
+        self.update()
+
+    def is_selected(self) -> bool:
+        """Ô của ngày đang xem ở bloc (ô hôm nay đã tô đầy nên không tính)."""
+        info = self._info
+        if info is None or self._selected is None or info.solar != self._selected:
+            return False
+        return not (self._today is not None and info.solar == self._today)
 
     # ----- tương tác ------------------------------------------------------- #
     def enterEvent(self, event) -> None:  # noqa: N802 - API Qt
@@ -383,7 +398,13 @@ class _DayCell(QWidget):
             painter.setBrush(QColor(theme.hover_bg))
             painter.drawRoundedRect(box, radius, radius)
 
-        if self.hasFocus() and not is_today:
+        if self.is_selected():
+            pen = QPen(QColor(theme.accent))
+            pen.setWidthF(max(1.2, 1.5 * scale))
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(box.adjusted(0.75, 0.75, -0.75, -0.75), radius, radius)
+        elif self.hasFocus() and not is_today:
             pen = QPen(QColor(theme.accent))
             pen.setWidthF(1.0)
             pen.setStyle(Qt.PenStyle.DotLine)
@@ -572,8 +593,6 @@ class MonthView(QWidget):
     month_changed = Signal(int, int)
     #: Bấm nút "về hôm nay".
     today_requested = Signal()
-    #: Bấm nút "Ngày" → xin quay về lịch ngày (lịch bloc).
-    bloc_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -584,6 +603,7 @@ class MonthView(QWidget):
         self._theme: Theme = get_theme(None)
         self._scale = 1.0
         self._today: date = system_today()
+        self._selected: date | None = None
         self._year: int = self._today.year
         self._month: int = self._today.month
         self._show_lunar = True
@@ -680,11 +700,6 @@ class MonthView(QWidget):
         self._today_info.setAlignment(
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
         )
-        self._btn_bloc = QPushButton("Ngày", self)
-        self._btn_bloc.setObjectName("BlocSwitchButton")
-        self._btn_bloc.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_bloc.setToolTip("Quay về lịch ngày")
-        self._btn_bloc.setFocusPolicy(Qt.FocusPolicy.TabFocus)
         self._btn_today = QPushButton("Hôm nay", self)
         self._btn_today.setObjectName("TodayButton")
         self._btn_today.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -696,7 +711,6 @@ class MonthView(QWidget):
         footer.setSpacing(0)
         footer.addWidget(self._footer_dot, 0, Qt.AlignmentFlag.AlignVCenter)
         footer.addWidget(self._today_info, 1)
-        footer.addWidget(self._btn_bloc, 0, Qt.AlignmentFlag.AlignVCenter)
         footer.addWidget(self._btn_today, 0, Qt.AlignmentFlag.AlignVCenter)
         outer.addLayout(footer)
         self._footer_layout = footer
@@ -704,7 +718,6 @@ class MonthView(QWidget):
         self._btn_prev.clicked.connect(lambda: self.step_month(-1))
         self._btn_next.clicked.connect(lambda: self.step_month(1))
         self._btn_today.clicked.connect(self._on_today_clicked)
-        self._btn_bloc.clicked.connect(self.bloc_requested.emit)
 
     # ----- theme / scale --------------------------------------------------- #
     def apply_theme(self, theme: Theme, scale: float = 1.0) -> None:
@@ -791,9 +804,8 @@ class MonthView(QWidget):
         pill_font = QFont(theme.font_ui)
         pill_font.setPixelSize(_px(10, st))
         pill_font.setWeight(QFont.Weight.DemiBold)
-        for button in (self._btn_bloc, self._btn_today):
-            button.setFont(pill_font)
-            button.setMinimumHeight(_px(24, sm))
+        self._btn_today.setFont(pill_font)
+        self._btn_today.setMinimumHeight(_px(24, sm))
 
         # Khoảng cách giữa chấm accent và cặp nút pill ở chân.
         self._footer_layout.setSpacing(_px(6, sm))
@@ -823,6 +835,15 @@ class MonthView(QWidget):
             cell.set_today_ref(day)
         self._refresh_footer_text()
         self.update()
+
+    def set_selected(self, day: date | None) -> None:
+        """Đánh dấu ngày đang xem ở lịch bloc (``None`` = không đánh dấu)."""
+        self._selected = day if isinstance(day, date) else None
+        for cell in self._cells:
+            cell.set_selected_ref(self._selected)
+
+    def selected(self) -> date | None:
+        return self._selected
 
     def set_month(self, year: int, month: int) -> None:
         """Dựng lại lưới cho tháng ``month``/``year``.
@@ -858,6 +879,7 @@ class MonthView(QWidget):
                 in_month=info.solar.month == month,
                 show_lunar=self._show_lunar,
                 index=index,
+                selected=self._selected,
             )
         self._apply_rows(rows)
         self._refresh_footer_text()
@@ -987,9 +1009,8 @@ class MonthView(QWidget):
         spacing = self._footer_layout.spacing()
         used = (
             self._footer_dot.sizeHint().width()
-            + self._btn_bloc.sizeHint().width()
             + self._btn_today.sizeHint().width()
-            + 5 * spacing
+            + 4 * spacing
         )
         margin = _px(14, _metric_scale(self._scale)) * 2
         available = max(0, self.width() - margin - used)

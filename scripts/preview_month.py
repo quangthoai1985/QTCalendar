@@ -23,7 +23,7 @@ Kết quả nằm trong ``preview/`` (script tự dọn ảnh cũ do chính nó 
   chuyển sang màu sáng để chữ vẫn đọc được).
 
 Script cũng tự kiểm nhanh hợp đồng API (đổi tháng, bấm ô ngày, nút Hôm nay,
-nút Ngày → ``bloc_requested``, số hàng lưới 5–6, hộp thoại chỉ sửa trên bản
+số hàng lưới 5–6, hộp thoại chỉ sửa trên bản
 sao, ``lunar_engine`` lưu được, chọn swatch màu nền ↔ ``Settings.bg_color``,
 ``SettingsDialog.edit`` trả ``None`` khi Huỷ) và in báo cáo. Mã trả về khác 0
 nếu có lỗi.
@@ -218,11 +218,9 @@ def check_month_view(app: QApplication) -> list[str]:
     months: list[tuple[int, int]] = []
     days: list[date] = []
     today_hits: list[int] = []
-    bloc_hits: list[int] = []
     view.month_changed.connect(lambda y, m: months.append((y, m)))
     view.day_activated.connect(lambda d: days.append(d))
     view.today_requested.connect(lambda: today_hits.append(1))
-    view.bloc_requested.connect(lambda: bloc_hits.append(1))
 
     if view.current_month() != (2026, 10):
         problems.append(
@@ -304,15 +302,6 @@ def check_month_view(app: QApplication) -> list[str]:
         app.processEvents()
         if not today_hits:
             problems.append("Nút Hôm nay không phát today_requested")
-
-    bloc_button = view.findChild(QPushButton, "BlocSwitchButton")
-    if bloc_button is None:
-        problems.append("Không tìm thấy nút Ngày (BlocSwitchButton)")
-    else:
-        bloc_button.click()
-        app.processEvents()
-        if not bloc_hits:
-            problems.append("Nút Ngày không phát bloc_requested")
 
     view.set_show_lunar(False)
     view.set_show_lunar(True)
