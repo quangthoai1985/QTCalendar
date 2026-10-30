@@ -544,7 +544,7 @@ def _layout_warnings(
     # --- châm ngôn trên dải hoa văn (_TopArtBanner tự vẽ, cắt theo khung chữ) ---
     if banner in visible and banner.width() > 140:  # hẹp hơn thì banner bỏ châm ngôn
         motto = banner._motto  # noqa: SLF001 - chỉ dùng để tự kiểm
-        motto_font = banner._font  # noqa: SLF001 - chỉ dùng để tự kiểm
+        motto_font = banner.font_for_paint()
         # khớp text_rect trong _TopArtBanner.paintEvent (drawText cắt theo khung này)
         area = QRectF(46.0, 2.0, banner.width() - 92.0, banner.height() - 6.0)
         flags = Qt.AlignmentFlag.AlignCenter.value | Qt.TextFlag.TextWordWrap.value

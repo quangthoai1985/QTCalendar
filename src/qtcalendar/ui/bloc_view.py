@@ -68,6 +68,10 @@ _TOPIC_CREDIT = {
     "danh-ngon": "Danh ngôn",
 }
 
+#: Châm ngôn mặc định trên dải hoa văn; "xã hội" nối bằng dấu cách không ngắt
+#: dòng (U+00A0) để không bị tách làm hai dòng.
+_DEFAULT_MOTTO = "Gia đình hạnh phúc là nền tảng của xã\u00a0hội thịnh vượng"
+
 _WEIGHT_NORMAL = QFont.Weight.Normal
 _WEIGHT_MEDIUM = QFont.Weight.Medium
 _WEIGHT_DEMI = QFont.Weight.DemiBold
@@ -118,6 +122,17 @@ def _make_day_font(family: str, pixel_size: int) -> QFont:
         QFont.SpacingType.AbsoluteSpacing, -max(0.4, pixel_size * 0.012)
     )
     return font
+
+
+def _ink_extent(metrics: QFontMetricsF, text: str) -> float:
+    """Bề rộng khung cần để vẽ ``text`` căn giữa mà mực không thò ra hai mép.
+
+    QLabel căn giữa theo advance, còn nét đậm/nghiêng có thể lấn ra ngoài
+    advance nên tính cả hộp mực ở hai bên.
+    """
+    advance = metrics.horizontalAdvance(text)
+    tight = metrics.tightBoundingRect(text)
+    return max(advance, advance - 2.0 * min(0.0, tight.left()), 2.0 * tight.right() - advance)
 
 
 def _wrap_elided(text: str, metrics: QFontMetricsF, width: float, max_lines: int) -> list[str]:
@@ -215,7 +230,7 @@ class _TopArtBanner(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("TopArtBanner")
-        self._motto = "Gia đình hạnh phúc là nền tảng của xã hội thịnh vượng"
+        self._motto = _DEFAULT_MOTTO
         self._accent = QColor("#A83232")
         self._accent_2 = QColor("#C9975B")
         self._line = QColor("#E2D7C5")
@@ -241,6 +256,29 @@ class _TopArtBanner(QWidget):
         self._ink_soft = QColor(ink_soft)
         self._font = QFont(font)
         self.update()
+
+    def _text_rect(self) -> QRectF:
+        return QRectF(46.0, 2.0, self.width() - 92.0, self.height() - 6.0)
+
+    def font_for_paint(self) -> QFont:
+        """Font châm ngôn, thu nhỏ khi cần để mọi dòng lọt khung chữ.
+
+        Khung chỉ cao ``h - 6``: châm ngôn 2 dòng ở cỡ gốc bị mất chân chữ
+        (g, y), khung nhỏ hơn thì mất hẳn dòng cuối.
+        """
+        font = QFont(self._font)
+        size = font.pixelSize()
+        rect = self._text_rect()
+        if not self._motto or size <= 0 or rect.width() <= 1 or rect.height() <= 1:
+            return font
+        flags = Qt.AlignmentFlag.AlignCenter.value | Qt.TextFlag.TextWordWrap.value
+        while size > 7:
+            block = QFontMetricsF(font).boundingRect(rect, flags, self._motto)
+            if block.height() <= rect.height() - 1.0 and block.width() <= rect.width():
+                break
+            size -= 1
+            font.setPixelSize(size)
+        return font
 
     def paintEvent(self, event) -> None:
         w = float(self.width())
@@ -290,11 +328,10 @@ class _TopArtBanner(QWidget):
 
         # Châm ngôn cuộc sống ở giữa
         if w > 140:
-            painter.setFont(self._font)
+            painter.setFont(self.font_for_paint())
             painter.setPen(self._ink_soft)
-            text_rect = QRectF(46.0, 2.0, w - 92.0, h - 6.0)
             painter.drawText(
-                text_rect,
+                self._text_rect(),
                 Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap,
                 self._motto,
             )
@@ -335,7 +372,29 @@ class _LunarPill(QWidget):
         return self._text
 
     def font_for_paint(self) -> QFont:
-        return QFont(self._font)
+        """Font đã cấu hình, thu nhỏ khi cần để mực chữ cách mép khung ≥ 2px.
+
+        Chữ "MÙNG 1"/"RẰM" có cỡ cố định nên ở cột hẹp sẽ chạm vạch phân cột.
+        """
+        font = QFont(self._font)
+        size = font.pixelSize()
+        if not self._text or size <= 0 or self.width() <= 8 or self.height() <= 8:
+            return font
+        max_w = self.width() - 4.0
+        max_h = self.height() - 2.0
+        tight = QFontMetricsF(font).tightBoundingRect(self._text)
+        if tight.width() <= max_w and tight.height() <= max_h:
+            return font
+        if tight.width() > 0 and tight.height() > 0:
+            ratio = min(max_w / tight.width(), max_h / tight.height())
+            size = max(8, min(size - 1, int(math.floor(size * ratio))))
+            font.setPixelSize(size)
+            tight = QFontMetricsF(font).tightBoundingRect(self._text)
+        while size > 8 and (tight.width() > max_w or tight.height() > max_h):
+            size -= 1
+            font.setPixelSize(size)
+            tight = QFontMetricsF(font).tightBoundingRect(self._text)
+        return font
 
     def paintEvent(self, event) -> None:
         if not self._text:
@@ -346,7 +405,7 @@ class _LunarPill(QWidget):
 
         w = float(self.width())
         h = float(self.height())
-        font = self._font
+        font = self.font_for_paint()
         painter.setFont(font)
         metrics = QFontMetricsF(font)
         tight = metrics.tightBoundingRect(self._text)
@@ -700,8 +759,15 @@ class BlocView(QWidget):
             accent_2=qcolor(t.accent_2),
             line=qcolor(t.line),
             ink_soft=qcolor(t.ink_soft),
-            font=QFont(self._quote_family, max(8, int(round(px(9.5, e))))),
+            font=self._motto_font(),
         )
+
+    def _motto_font(self) -> QFont:
+        # Cỡ pixel như mọi chữ khác (trước là 10pt ≈ 13px ở 96 DPI).
+        font = QFont(self._quote_family)
+        font.setPixelSize(max(10, px(13, self._eff)))
+        font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
+        return font
 
     def _apply_fonts(self) -> None:
         e = self._eff
@@ -837,7 +903,7 @@ class BlocView(QWidget):
             self._col3_tiet_khi.setVisible(False)
 
         # Banner châm ngôn
-        motto = "Gia đình hạnh phúc là nền tảng của xã hội thịnh vượng"
+        motto = _DEFAULT_MOTTO
         if info.holiday:
             motto = f"Chúc mừng {info.holiday}"
         self._top_banner.configure(
@@ -846,7 +912,7 @@ class BlocView(QWidget):
             accent_2=qcolor(t.accent_2),
             line=qcolor(t.line),
             ink_soft=qcolor(t.ink_soft),
-            font=QFont(self._quote_family, max(8, int(round(px(9.5, e))))),
+            font=self._motto_font(),
         )
 
     def _sync_quote(self) -> None:
@@ -999,7 +1065,10 @@ class BlocView(QWidget):
         else:
             self._quote_label.setText("")
 
-        h_quote_block = h_quote_total + (h_credit + px(3, e) if credit_visible else 0)
+        credit_gap = px(2, e)
+        if credit_visible and quote_lines:
+            credit_gap = self._quote_credit_gap(fm_quote, quote_lines[-1], fm_credit, self._credit.text())
+        h_quote_block = h_quote_total + (h_credit + credit_gap if credit_visible else 0)
         gap_day_quote = max(2, px(4, e)) if h_quote_block > 0 else 0
 
         day_h = int(h_mid - h_quote_block - gap_day_quote)
@@ -1017,7 +1086,7 @@ class BlocView(QWidget):
         if h_quote_total > 0:
             self._quote_label.setGeometry(int(content.left()), int(round(q_y)), int(cw), h_quote_total)
             self._quote_label.setVisible(True)
-            q_y += h_quote_total + px(2, e)
+            q_y += h_quote_total + credit_gap
         else:
             self._quote_label.setVisible(False)
 
@@ -1062,10 +1131,14 @@ class BlocView(QWidget):
         # ---- Cột 1 (Trái: Dương lịch & Hoàng đạo) ----
         pad1 = 2
         col1_w = w1 - 2 * pad1
-        f_m_en = self._fit_label_font(self._col1_month_en.text(), self._ui_family, px(10.5, e), col1_w, 7, _WEIGHT_BOLD, spacing=px(1.0, e))
+        f_m_en = self._fit_label_font(self._col1_month_en.text(), self._ui_family, px(10.5, e), col1_w, 6, _WEIGHT_BOLD, spacing=px(1.0, e))
         self._col1_month_en.setFont(f_m_en)
         f_m_vn = self._fit_label_font(self._col1_month_vn.text(), self._ui_family, px(13.2, e), col1_w, 8, _WEIGHT_BOLD)
         self._col1_month_vn.setFont(f_m_vn)
+        self._col1_zodiac.setFont(self._fit_label_font(self._col1_zodiac.text(), self._ui_family, max(px(9.5, e), 8), col1_w, 6, _WEIGHT_DEMI))
+        self._col1_hours_title.setFont(self._fit_label_font(self._col1_hours_title.text(), self._ui_family, max(px(8.8, e), 7.5), col1_w, 6, _WEIGHT_BOLD, spacing=px(0.8, e)))
+        self._col1_hours.setFont(self._fit_label_font(self._col1_hours.text(), self._ui_family, max(px(9.2, e), 7.5), col1_w, 6, _WEIGHT_MEDIUM))
+        self._col1_footer.setFont(self._fit_label_font(self._col1_footer.text(), self._ui_family, max(px(8.8, e), 7.5), col1_w, 6, _WEIGHT_DEMI))
 
         fm_m_en = QFontMetricsF(self._col1_month_en.font())
         fm_m_vn = QFontMetricsF(self._col1_month_vn.font())
@@ -1144,6 +1217,13 @@ class BlocView(QWidget):
         col3_w = w3 - 2 * pad3
         f_lm = self._fit_label_font(self._col3_lunar_month.text(), self._ui_family, px(12.0, e), col3_w, 7, _WEIGHT_BOLD)
         self._col3_lunar_month.setFont(f_lm)
+        # Bốn dòng Can Chi chung một cỡ (theo dòng dài nhất) cho thẳng hàng
+        canchi_labels = (self._col3_canchi_month, self._col3_canchi_day, self._col3_canchi_hour, self._col3_canchi_year)
+        canchi_text = "\n".join(lbl.text() for lbl in canchi_labels)
+        f_cc = self._fit_label_font(canchi_text, self._ui_family, max(px(10.2, e), 8), col3_w - 1, 6, _WEIGHT_MEDIUM)
+        for cc_lbl in canchi_labels:
+            cc_lbl.setFont(f_cc)
+        self._col3_tiet_khi.setFont(self._fit_label_font(self._col3_tiet_khi.text(), self._ui_family, max(px(9.5, e), 7.5), col3_w, 6, _WEIGHT_NORMAL, italic=True))
 
         fm_lm = QFontMetricsF(self._col3_lunar_month.font())
         fm_cc = QFontMetricsF(self._col3_canchi_month.font())
@@ -1158,7 +1238,7 @@ class BlocView(QWidget):
         cy3 += h_lm + px(3, e)
 
         cc_gap = max(1, px(2, e))
-        for cc_lbl in (self._col3_canchi_month, self._col3_canchi_day, self._col3_canchi_hour, self._col3_canchi_year):
+        for cc_lbl in canchi_labels:
             cc_lbl.setGeometry(int(x3 + pad3 + 1), int(round(cy3)), col3_w - 1, h_cc)
             cc_lbl.setVisible(True)
             cy3 += h_cc + cc_gap
@@ -1170,6 +1250,24 @@ class BlocView(QWidget):
 
         self._col3_lunar_month.setVisible(True)
 
+    def _quote_credit_gap(
+        self,
+        fm_quote: QFontMetricsF,
+        last_line: str,
+        fm_credit: QFontMetricsF,
+        credit_text: str,
+    ) -> int:
+        """Khoảng cách hai nhãn để mực ca dao và mực dòng nguồn cách nhau ≥ px(6).
+
+        Chân chữ (g, y, dấu nặng) ở dòng cuối ca dao và dấu chồng (ố, ữ) của
+        dòng nguồn ăn vào phần trống của hộp chữ, nên tính theo hộp mực thật.
+        """
+        e = self._eff
+        free_below = fm_quote.descent() - fm_quote.tightBoundingRect(last_line).bottom()
+        free_above = fm_credit.ascent() + fm_credit.tightBoundingRect(credit_text).top()
+        need = px(6, e) + 2  # +2: viền khử răng cưa của hai dòng chữ
+        return max(px(2, e), int(math.ceil(need - max(0.0, free_below) - max(0.0, free_above))))
+
     def _fit_label_font(
         self,
         text: str,
@@ -1179,23 +1277,48 @@ class BlocView(QWidget):
         min_px: int = 7,
         weight: QFont.Weight = _WEIGHT_NORMAL,
         spacing: float | None = None,
+        *,
+        italic: bool = False,
     ) -> QFont:
-        """Tự động thu nhỏ cỡ chữ để không bao giờ bị cắt hoặc tràn ngang."""
-        font = QFont(family)
-        font.setPixelSize(max(min_px, int(round(base_px))))
-        font.setWeight(weight)
-        font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
-        if spacing is not None:
-            font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, float(spacing))
-        if not text or max_width <= 1:
+        """Thu nhỏ cỡ chữ tới khi mực của mọi dòng (tách theo ``\\n``) lọt bề rộng.
+
+        Khoảng giãn chữ co theo cùng tỉ lệ. Đo lại sau mỗi lần thu nhỏ vì làm
+        tròn cỡ pixel khiến một lần chia tỉ lệ vẫn có thể lố 1px.
+        """
+        start = max(min_px, int(round(base_px)))
+
+        def build(size: int) -> QFont:
+            font = QFont(family)
+            font.setPixelSize(size)
+            font.setWeight(weight)
+            font.setItalic(italic)
+            font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
+            if spacing is not None:
+                font.setLetterSpacing(
+                    QFont.SpacingType.AbsoluteSpacing, float(spacing) * size / start
+                )
             return font
-        metrics = QFontMetricsF(font)
-        width = metrics.horizontalAdvance(text)
-        if width <= max_width:
+
+        font = build(start)
+        lines = [line for line in (text or "").split("\n") if line.strip()]
+        if not lines or max_width <= 1:
             return font
-        ratio = max_width / width
-        new_size = max(min_px, int(math.floor(base_px * ratio)))
-        font.setPixelSize(new_size)
+
+        def need(f: QFont) -> float:
+            metrics = QFontMetricsF(f)
+            return max(_ink_extent(metrics, line) for line in lines)
+
+        limit = max_width - 2.0  # chừa 1px mỗi bên cho sai lệch hinting khi vẽ thật
+        size = start
+        width = need(font)
+        if width > limit and size > min_px:
+            size = max(min_px, min(size - 1, int(math.floor(size * limit / width))))
+            font = build(size)
+            width = need(font)
+            while width > limit and size > min_px:
+                size -= 1
+                font = build(size)
+                width = need(font)
         return font
 
     def _fit_day_font(self, text: str, avail_w: float, avail_h: int) -> int:
