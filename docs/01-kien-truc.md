@@ -34,7 +34,7 @@ Mục lục
 | F7 | Opacity 20 % – 100 % | Xem §5 |
 | F8 | Lịch ngày: Thứ, ngày dương cực lớn, âm lịch, Can Chi, giờ hoàng đạo, ca dao | `DayInfo` |
 | F9 | Lịch tháng 7 cột, Dương + Âm song song | `MonthGrid` |
-| F10 | Đổi chế độ xem ngay trên widget và qua khay | Nút nổi + menu |
+| F10 | Xem lịch tháng cùng lúc với lịch bloc, bật/tắt ngay trên widget và qua khay | Tab kéo ở chân + nháy đúp + menu (`show_month`) |
 | F11 | Thuật toán âm lịch chuẩn UTC+7 theo Hồ Ngọc Đức | Hai engine – xem `docs/04` |
 | F12 | Cấu hình lưu `settings.json` | `ConfigStore`, ghi nguyên tử |
 
@@ -306,7 +306,7 @@ main()
  ├─ QLockFile (single-instance)
  ├─ AppController
  │    ├─ CalendarWidget(settings)
- │    │     ├─ _build_ui()        (QStackedWidget + 2 nút nổi)
+ │    │     ├─ _build_ui()        (cột dọc bloc → lịch tháng + tab kéo + nút menu nổi)
  │    │     ├─ _refresh_content() (DayInfo + ca dao)
  │    │     └─ _start_timers()
  │    │           ├─ _midnight_timer  (single-shot tới 00:00:03)

@@ -52,6 +52,7 @@ E:\App\QTCalendar\
 │   │   ├── widget_window.py    #   cửa sổ không viền, kéo thả, ghim, menu
 │   │   ├── bloc_view.py        #   lịch ngày (vẽ tay toàn bộ)
 │   │   ├── month_view.py       #   lịch tháng 7 cột
+│   │   ├── month_tab.py        #   tab kéo bật/tắt lịch tháng dưới chân bloc
 │   │   ├── settings_dialog.py  #   3 thẻ cài đặt + preview trực tiếp
 │   │   └── styles.py           #   sinh QSS từ Theme
 │   └── data/
@@ -117,7 +118,7 @@ E:\App\QTCalendar\
 
 | File | Dòng | Nhiệm vụ | Phụ thuộc |
 |---|---:|---|---|
-| `widget_window.py` | 990 | Cửa sổ không viền: kéo thả, **tay nắm kéo giãn ở góc** (`_ResizeGrip`, giới hạn 260×330 … 1000×1300), hệ số phóng nội dung tự suy ra từ kích thước (`content_scale()`), opacity, ghim desktop, watchdog, menu chuột phải, 2 nút nổi, chuyển view (lười tạo lịch tháng) | `core`, `platform`, `bloc_view`, `month_view`, `styles` |
+| `widget_window.py` | 990 | Cửa sổ không viền: kéo thả, **tay nắm kéo giãn ở góc** (`_ResizeGrip`, giới hạn 260×330 … 1000×1300), hệ số phóng nội dung tự suy ra từ kích thước (`content_scale()`), opacity, ghim desktop, watchdog, menu chuột phải, nút menu nổi, xếp dọc bloc + lịch tháng (`set_show_month`, lười tạo lịch tháng), tab kéo `MonthTab` | `core`, `platform`, `bloc_view`, `month_view`, `styles` |
 | `bloc_view.py` | 1.694 | Mặt lịch bloc: dải gáy, số ngày auto-fit, Can Chi, badge, 6 chip giờ hoàng đạo, ca dao | `core.types`, `theme` |
 | `month_view.py` | 882 | Lưới tháng 5–6 hàng, header ‹ ›, ô tự vẽ, footer `[Ngày] [Hôm nay]` | `calendar_service`, `theme` |
 | `settings_dialog.py` | 1.336 | 3 thẻ: Giao diện / Cửa sổ / Nâng cao; preview theme + opacity; lưu bản sao `Settings` | `config`, `theme`, `styles`, `platform.autostart` |
@@ -222,7 +223,7 @@ trường `QTCALENDAR_CONFIG=<đường dẫn>` sẽ ép dùng tệp cụ thể.
 | **Ngày lễ mới** | thêm một dòng vào `SOLAR_HOLIDAYS` hoặc `LUNAR_HOLIDAYS` trong `core/holidays.py` |
 | **Ca dao mới** | thêm object vào `src/qtcalendar/data/quotes.json` rồi `quotes.reload()` |
 | **Engine âm lịch khác** | thêm module cùng API 8 hàm, đăng ký vào `ENGINES` trong `calendar_service.py`, thêm vào `LUNAR_ENGINES` trong `config.py` |
-| **Chế độ xem mới** (tuần, năm) | thêm widget vào `ui/`, thêm vào `QStackedWidget` trong `widget_window._build_ui` + một mục trong menu |
+| **Mặt lịch mới** (tuần, năm) | thêm widget vào `ui/`, chèn vào cột dọc trong `widget_window._build_ui` (như lịch tháng ở `set_show_month`) + một ô tick trong menu |
 | **Đa ngôn ngữ** | hiện chưa hỗ trợ: chuỗi tiếng Việt nằm rải trong `types.py` (nhãn ngày/tháng), `canchi_constants.py` (Can Chi, tiết khí) và các view. Hướng làm: tách thành `core/i18n.py` với dict theo mã ngôn ngữ, truyền `lang` vào `Settings` |
 | **Đóng gói .exe** | xem `docs/05-kiem-thu-va-dong-goi.md` §7 |
 

@@ -42,20 +42,22 @@ python -X utf8 scripts\probe_desktop_pin.py        # lớp 4 (chuyên sâu ghim)
 
 ```
 $ python -X utf8 -m pytest tests -q
-492 passed, 7 xfailed in 8,50s
+545 passed, 7 xfailed in 10,8s
 ```
 
 | File test | Số test | Phạm vi |
 |---|---:|---|
 | `test_lunar_precise.py` | 130 | 56 ngày Tết, 18 tháng nhuận, liên tục 1900–2200, round-trip, độ dài năm, tiết khí, thiên văn (sóc 06/01/2000, ΔT, phân/chí 2026) |
 | `test_lunar_hnd.py` | 99 | engine Hồ Ngọc Đức: Tết, `lunar_month_days`, `lunar_year_months`, các ca khác biệt có chủ đích |
-| `test_config.py` | 58 | load/save, tệp hỏng, kẹp giá trị, ghi nguyên tử, portable |
+| `test_config.py` | 64 | load/save, tệp hỏng, kẹp giá trị, ghi nguyên tử, portable, chuyển `view` cũ → `show_month` (schema 2) |
 | `test_canchi.py` | 55 | Can Chi năm/tháng/ngày, con giáp, giờ hoàng đạo, ngày hoàng đạo |
 | `test_calendar_service.py` | 44 | `DayInfo`, `MonthGrid`, ngày lễ |
 | `test_holidays.py` | 38 | bảng lễ Dương + Âm, ưu tiên, tháng nhuận không tính lễ |
 | `test_audit_calendar.py` | 20 | CLI audit: bố cục bảng, `--year`, `--engine`, tháng nhuận |
 | `test_quotes.py` | 26 | kho ca dao: số lượng, không trùng, UTF-8, ổn định theo ngày |
-| `test_widget_window.py` | 14 | kéo giãn cửa sổ (delta, kẹp min/max, lưu kích thước) + **chế độ ghim giữ nền trong suốt, không quầng đen** |
+| `test_widget_window.py` | 35 | kéo giãn cửa sổ (delta, kẹp min/max, lưu kích thước) + **chế độ ghim giữ nền trong suốt, không quầng đen** + lịch tháng dưới bloc (cao thêm đúng, không đổi cỡ chữ, tab bám mép, kéo giãn/vừa màn hình, bấm ngày giữ lịch mở) |
+| `test_month_tab.py` | 6 | tab kéo: chữ/mũi tên theo trạng thái, phát `toggled`, không dùng ký tự tượng hình, co giãn theo hệ số phóng |
+| `test_month_view.py` | 5 | lịch tháng: không còn nút Ngày, đánh dấu ngày đang xem (`set_selected`) |
 | `test_desktop_pin.py` | 7 | `handle_windowposchanging` (chống dời `-32000`, chống `SWP_HIDEWINDOW`, `SWP_NOZORDER` khi click, cho phép lệnh nội bộ), `pin`/`unpin`, `update_z_order` khi Show Desktop và bình thường |
 | `test_theme_paper.py` | 15 | độ mờ chỉ ở nền (chữ đặc), màu nền tuỳ chọn, `bg_color` lưu/đọc |
 
@@ -271,8 +273,9 @@ Ghi chú:
 
 ### 7.3 Danh sách kiểm tra trước khi phát hành
 
-- [ ] `python -X utf8 -m pytest tests -q` xanh (507 passed / 7 xfailed).
-- [ ] `python run_qtcalendar.pyw --smoke out.png` cả hai chế độ xem, exit 0.
+- [ ] `python -X utf8 -m pytest tests -q` xanh (545 passed / 7 xfailed).
+- [ ] `python run_qtcalendar.pyw --smoke out.png --view bloc` và `--view month` (bloc + lịch tháng), exit 0.
+- [ ] Bấm tab `THÁNG` ở chân: lịch tháng hiện dưới bloc, tab thành `ẨN`; bấm lại thì widget về đúng kích thước cũ.
 - [ ] Ở chế độ ghim: lịch **nằm dưới mọi ứng dụng**, nền trong suốt, góc bo
       không có quầng đen; không có trong taskbar/Alt+Tab.
 - [ ] Nhấn `Win + D`: lịch vẫn hiện, nằm dưới Taskbar; click lại một ứng

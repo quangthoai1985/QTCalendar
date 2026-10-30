@@ -752,7 +752,16 @@ giảm 3→2→1 khi khung thấp) → nguồn.
 
 Lưới `QGridLayout` 7 cột × 5–6 hàng, ô là `_DayCell` tự vẽ (không widget
 con), số hàng co theo số tuần thực tế của tháng. Header ‹ Tháng 10 / 2026 ›,
-chân có `● Hôm nay…` + cặp nút `[Ngày] [Hôm nay]`.
+chân có `● Hôm nay…` + nút `[Hôm nay]`.
+
+Lịch tháng hiện **ngay dưới chân lịch bloc** (không thay thế bloc):
+`CalendarWidget` xếp dọc bloc → khe → `MonthView` → dải đáy, và treo
+tab kéo `MonthTab` (`ui/month_tab.py`) dưới mép tờ giấy cuối cùng. Mọi lối
+vào (tab, nháy đúp, menu chuột phải, khay, Cài đặt) gọi
+`set_show_month(flag)`. Chiều cao tờ lịch tháng = bề rộng giấy ×
+`MONTH_RATIO` (1,15), không phụ thuộc tháng 5 hay 6 hàng; `Settings.height`
+vẫn là chiều cao bloc nên bật/tắt không đổi cỡ chữ. Bấm một ngày: bloc
+chuyển sang ngày đó, ô ngày được viền nhấn (`MonthView.set_selected`).
 
 Hai bẫy hiệu năng đã xử lý:
 
