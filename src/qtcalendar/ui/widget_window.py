@@ -495,6 +495,9 @@ class CalendarWidget(QWidget):
         self._bloc.set_quote(self._quote)
 
         self._sync_month_view()
+        if self._month is not None:
+            # Ô của ngày đang xem ở bloc được viền nhấn (None = hôm nay).
+            self._month.set_selected(self._selected)
 
     def _pick_quote(self, day: date):
         if self._settings.quote_mode == "random":

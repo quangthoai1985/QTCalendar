@@ -373,3 +373,43 @@ def test_khoi_dong_mo_san_gan_day_van_vua_man_hinh(qapp, monkeypatch):
         assert w.pos().y() + w.height() - SHADOW_MARGIN <= 1040
     finally:
         w.deleteLater()
+
+
+# --------------------------------------------------------------------------- #
+# Bấm ngày trong lịch tháng
+# --------------------------------------------------------------------------- #
+def _ngay_khac_hom_nay() -> date:
+    from qtcalendar.core import calendar_service
+
+    hom_nay = calendar_service.today()
+    return hom_nay.replace(day=15 if hom_nay.day != 15 else 16)
+
+
+def test_bam_ngay_doi_bloc_va_giu_lich_thang(widget):
+    ngay = _ngay_khac_hom_nay()
+    widget.set_show_month(True)
+    widget._on_day_activated(ngay)
+    assert widget._settings.show_month is True
+    assert widget._month.isHidden() is False
+    assert widget._bloc.current_day.solar == ngay
+    assert widget._month.selected() == ngay
+
+
+def test_ve_hom_nay_bo_chon(widget):
+    ngay = _ngay_khac_hom_nay()
+    widget.set_show_month(True)
+    widget._on_day_activated(ngay)
+    assert widget._month.selected() == ngay
+    widget.go_today()
+    assert widget._month.selected() is None
+
+
+def test_qua_nua_dem_bo_chon(widget):
+    ngay = _ngay_khac_hom_nay()
+    widget.set_show_month(True)
+    widget._on_day_activated(ngay)
+    assert widget._month.selected() == ngay
+    widget._midnight_timer.stop()
+    widget._on_new_day()
+    assert widget._selected is None
+    assert widget._month.selected() is None
