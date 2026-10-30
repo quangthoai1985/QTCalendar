@@ -456,9 +456,17 @@ def unpin(hwnd: int) -> bool:
 
 Hook `EVENT_SYSTEM_FOREGROUND` (cờ `WINEVENT_OUTOFCONTEXT |
 WINEVENT_SKIPOWNPROCESS`) gọi `update_z_order` cho mọi cửa sổ đang ghim mỗi
-khi cửa sổ active thay đổi, nên widget đổi tầng ngay khi bấm `Win + D` hoặc
-click lại vào ứng dụng. Tham chiếu tới callback ctypes được giữ trong biến
-module (`_hook_proc_ref`) để không bị GC thu hồi.
+khi cửa sổ active thay đổi, nên widget lên tầng ngay khi bấm `Win + D`. Tham
+chiếu tới callback ctypes được giữ trong biến module (`_hook_proc_ref`) để
+không bị GC thu hồi.
+
+Lúc thoát Show Desktop thì hook không đủ: sự kiện foreground đến **trước** khi
+Explorer hạ lớp Desktop (~100 ms) nên `is_show_desktop_active()` vẫn trả
+`True`. Vì thế nhánh Show Desktop của `update_z_order` gọi
+`_start_restore_poll()`: một timer Win32 `SetTimer(NULL, 0, RESTORE_POLL_MS,
+_TIMERPROC)` chạy trên luồng GUI. `_on_restore_poll` chỉ hạ widget về
+`HWND_BOTTOM` khi lớp Desktop đã xuống, tức là không đảo Z-order mỗi nhịp.
+Nhánh bình thường, `unpin()` và `monitor()` đều tắt timer.
 
 ### 8.3 Các cạm bẫy phải xử lý ở tầng UI
 

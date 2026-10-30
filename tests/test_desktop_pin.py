@@ -104,6 +104,7 @@ def test_update_z_order_show_desktop():
          patch.object(desktop_pin, "is_show_desktop_active", return_value=True), \
          patch.object(desktop_pin, "_find_taskbar_window", return_value=5555), \
          patch("qtcalendar.platform.win32.is_window_visible", return_value=True), \
+         patch.object(desktop_pin, "_start_restore_poll"), \
          patch("qtcalendar.platform.win32.set_window_pos") as mock_set_pos:
 
         desktop_pin.update_z_order(dummy_hwnd)
@@ -124,3 +125,85 @@ def test_update_z_order_normal():
         # Đưa về HWND_BOTTOM
         assert mock_set_pos.call_count == 1
         assert mock_set_pos.call_args[0][1] == win32.HWND_BOTTOM
+
+
+# --------------------------------------------------------------------------- #
+# Hồi quy v1.1.2: bấm Win + D lần nữa, widget đè lên ứng dụng ~1 giây
+# --------------------------------------------------------------------------- #
+def test_vao_show_desktop_bat_timer_do_thoat():
+    """EVENT_SYSTEM_FOREGROUND đến TRƯỚC khi Explorer hạ lớp Desktop ⇒ phải dò tiếp."""
+    with patch("qtcalendar.platform.win32.is_window", return_value=True), \
+         patch.object(desktop_pin, "is_show_desktop_active", return_value=True), \
+         patch.object(desktop_pin, "_find_taskbar_window", return_value=0), \
+         patch("qtcalendar.platform.win32.set_window_pos"), \
+         patch.object(desktop_pin, "_start_restore_poll") as start, \
+         patch.object(desktop_pin, "_stop_restore_poll") as stop:
+
+        desktop_pin.update_z_order(123456)
+
+        start.assert_called_once()
+        stop.assert_not_called()
+
+
+def test_ve_binh_thuong_tat_timer_do_thoat():
+    with patch("qtcalendar.platform.win32.is_window", return_value=True), \
+         patch.object(desktop_pin, "is_show_desktop_active", return_value=False), \
+         patch("qtcalendar.platform.win32.set_window_pos"), \
+         patch.object(desktop_pin, "_start_restore_poll") as start, \
+         patch.object(desktop_pin, "_stop_restore_poll") as stop:
+
+        desktop_pin.update_z_order(123456)
+
+        stop.assert_called_once()
+        start.assert_not_called()
+
+
+def test_timer_do_thoat_ha_widget_khi_desktop_da_ha():
+    with patch.object(desktop_pin, "_pinned_hwnds", {123456}), \
+         patch("qtcalendar.platform.win32.is_window", return_value=True), \
+         patch.object(desktop_pin, "is_show_desktop_active", return_value=False), \
+         patch.object(desktop_pin, "_stop_restore_poll") as stop, \
+         patch("qtcalendar.platform.win32.set_window_pos") as mock_set_pos:
+
+        desktop_pin._on_restore_poll(0, 0, 0, 0)
+
+        assert mock_set_pos.call_args[0][0] == 123456
+        assert mock_set_pos.call_args[0][1] == win32.HWND_BOTTOM
+        stop.assert_called()
+
+
+def test_timer_do_thoat_khong_dao_z_order_khi_van_show_desktop():
+    """Vẫn đang Show Desktop: không SetWindowPos mỗi nhịp timer (tránh đảo Z-order liên tục)."""
+    with patch.object(desktop_pin, "_pinned_hwnds", {123456}), \
+         patch("qtcalendar.platform.win32.is_window", return_value=True), \
+         patch.object(desktop_pin, "is_show_desktop_active", return_value=True), \
+         patch.object(desktop_pin, "_stop_restore_poll") as stop, \
+         patch("qtcalendar.platform.win32.set_window_pos") as mock_set_pos:
+
+        desktop_pin._on_restore_poll(0, 0, 0, 0)
+
+        mock_set_pos.assert_not_called()
+        stop.assert_not_called()
+
+
+@pytest.mark.skipif(not desktop_pin.IS_WINDOWS, reason="Timer Win32 chỉ có trên Windows")
+def test_timer_do_thoat_chay_trong_vong_lap_qt():
+    """Timer Win32 (SetTimer) phải được vòng lặp sự kiện Qt phát tới callback."""
+    pytest.importorskip("PySide6")
+    import time
+
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance() or QApplication([])
+    calls = []
+    with patch.object(desktop_pin, "is_show_desktop_active", side_effect=lambda: calls.append(1) or True):
+        desktop_pin._start_restore_poll()
+        try:
+            deadline = time.monotonic() + 0.6
+            while time.monotonic() < deadline and len(calls) < 3:
+                app.processEvents()
+                time.sleep(0.005)
+        finally:
+            desktop_pin._stop_restore_poll()
+    assert len(calls) >= 3
+    assert desktop_pin._restore_timer == 0

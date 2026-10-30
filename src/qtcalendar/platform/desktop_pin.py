@@ -20,6 +20,11 @@ Nguyên lý Rainmeter (Top-Level Desktop Pin):
      hạ trở về HWND_BOTTOM, nằm dưới mọi ứng dụng nhưng trên hình nền.
 4. Hook sự kiện WinEvent (EVENT_SYSTEM_FOREGROUND):
    - Bắt tức thì khi chuyển đổi qua lại giữa Desktop và các ứng dụng mà không cần chờ timer.
+5. Timer dò thoát Show Desktop (Rainmeter: INTERVAL_RESTOREWINDOWS):
+   - Khi khôi phục ứng dụng, sự kiện foreground đến TRƯỚC lúc Explorer hạ lớp Desktop
+     (~100 ms) và sau đó không còn sự kiện nào. Vì vậy trong lúc Show Desktop, một
+     timer Win32 hỏi lại mỗi RESTORE_POLL_MS để hạ widget ngay khi lớp Desktop xuống,
+     thay vì để widget TOPMOST đè lên ứng dụng tới lượt watchdog kế tiếp.
 """
 
 from __future__ import annotations
@@ -80,6 +85,17 @@ _WINEVENTPROC = ctypes.WINFUNCTYPE(
     wintypes.DWORD,
 )
 
+# Chu kỳ (ms) dò thoát Show Desktop; chỉ chạy trong lúc đang Show Desktop.
+RESTORE_POLL_MS = 50
+
+_TIMERPROC = ctypes.WINFUNCTYPE(
+    None,
+    wintypes.HWND,
+    wintypes.UINT,
+    ctypes.c_size_t,  # UINT_PTR idEvent
+    wintypes.DWORD,
+)
+
 
 @dataclass
 class _PinState:
@@ -93,6 +109,8 @@ _saved_states: Dict[int, _PinState] = {}
 _sentinel_hwnd: int = 0
 _win_event_hook = None
 _hook_proc_ref = None  # giữ tham chiếu tránh GC thu hồi
+_restore_timer: int = 0
+_timer_proc_ref = None  # giữ tham chiếu tránh GC thu hồi
 _show_desktop: bool = False
 last_error: int = 0
 
@@ -256,15 +274,68 @@ def update_z_order(hwnd: int) -> None:
         taskbar = _find_taskbar_window()
         if taskbar and win32.is_window(taskbar) and win32.is_window_visible(taskbar):
             win32.set_window_pos(hwnd, taskbar, 0, 0, 0, 0, ZPOS_FLAGS)
+
+        _start_restore_poll()
     else:
         # Bình thường:
         # Đưa widget về HWND_BOTTOM để nằm dưới tất cả các ứng dụng thông thường
         win32.set_window_pos(hwnd, win32.HWND_BOTTOM, 0, 0, 0, 0, ZPOS_FLAGS)
 
+        _stop_restore_poll()
+
 
 def send_to_bottom(hwnd: int) -> None:
     """Đưa cửa sổ về vị trí chuẩn (tương thích API cũ)."""
     update_z_order(hwnd)
+
+
+def _on_restore_poll(_hwnd, _msg, _id_event, _time):
+    """Timer dò thoát Show Desktop: chỉ đổi Z-order khi lớp Desktop đã hạ xuống."""
+    if is_show_desktop_active():
+        return
+    _stop_restore_poll()
+    for p_hwnd in list(_pinned_hwnds):
+        if win32.is_window(p_hwnd):
+            update_z_order(p_hwnd)
+
+
+def _start_restore_poll() -> None:
+    """Bật timer Win32 dò thoát Show Desktop (gọi trên luồng GUI, đã chạy thì bỏ qua)."""
+    global _restore_timer, _timer_proc_ref
+    if not IS_WINDOWS or _restore_timer:
+        return
+    try:
+        if win32.user32 is None:
+            return
+        win32.user32.SetTimer.argtypes = [
+            wintypes.HWND,
+            ctypes.c_size_t,
+            wintypes.UINT,
+            _TIMERPROC,
+        ]
+        win32.user32.SetTimer.restype = ctypes.c_size_t
+
+        if _timer_proc_ref is None:
+            _timer_proc_ref = _TIMERPROC(_on_restore_poll)
+        # hWnd = NULL: timer của luồng, vòng lặp Qt DispatchMessage tới _TIMERPROC
+        _restore_timer = int(win32.user32.SetTimer(None, 0, RESTORE_POLL_MS, _timer_proc_ref) or 0)
+    except Exception as e:
+        log.debug("Không bật được timer dò thoát Show Desktop: %s", e)
+
+
+def _stop_restore_poll() -> None:
+    """Tắt timer dò thoát Show Desktop."""
+    global _restore_timer
+    if not _restore_timer:
+        return
+    try:
+        if win32.user32 is not None:
+            win32.user32.KillTimer.argtypes = [wintypes.HWND, ctypes.c_size_t]
+            win32.user32.KillTimer.restype = wintypes.BOOL
+            win32.user32.KillTimer(None, _restore_timer)
+    except Exception:
+        pass
+    _restore_timer = 0
 
 
 def handle_windowposchanging(lparam: int, allow_hide: bool = False) -> bool:
@@ -422,6 +493,7 @@ def unpin(hwnd: int) -> bool:
         _pinned_hwnds.discard(hwnd)
 
         if not _pinned_hwnds:
+            _stop_restore_poll()
             _cleanup_event_hook()
             _cleanup_sentinel()
 
@@ -456,6 +528,7 @@ def monitor() -> bool:
         update_z_order(hwnd)
 
     if not _pinned_hwnds:
+        _stop_restore_poll()
         _cleanup_event_hook()
         _cleanup_sentinel()
 

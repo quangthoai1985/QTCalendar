@@ -224,10 +224,20 @@ Rainmeter:
 3. Bổ sung: nếu cửa sổ foreground chính là lớp Desktop (hoặc con của nó) thì
    cũng coi là Show Desktop.
 
-**Phản ứng tức thì**: hook `EVENT_SYSTEM_FOREGROUND` (out-of-context, bỏ qua
-tiến trình của chính mình) gọi `update_z_order` mỗi khi đổi cửa sổ active,
-nên bấm `Win + D` hay click lại vào ứng dụng thì widget đổi tầng ngay, không
-phải chờ timer.
+**Vào Show Desktop – phản ứng tức thì**: hook `EVENT_SYSTEM_FOREGROUND`
+(out-of-context, bỏ qua tiến trình của chính mình) gọi `update_z_order` mỗi
+khi đổi cửa sổ active, nên bấm `Win + D` thì widget lên tầng ngay, không phải
+chờ timer.
+
+**Thoát Show Desktop – timer dò 50 ms** (Rainmeter: `INTERVAL_RESTOREWINDOWS`):
+khi bấm `Win + D` lần nữa hoặc mở lại ứng dụng, sự kiện foreground đến
+**trước** lúc Explorer hạ lớp Desktop (~100 ms, đo trên Win11 25H2) và sau đó
+không còn sự kiện nào. Nếu chỉ dựa vào hook, widget giữ `TOPMOST` và đè lên
+ứng dụng tới lượt watchdog 2 s kế tiếp (đo được 1,4–1,5 s). Vì vậy khi vào Show
+Desktop, `update_z_order` bật một timer Win32 (`SetTimer`, hWnd = NULL, vòng
+lặp Qt phát tới `_on_restore_poll`) hỏi lại `is_show_desktop_active()` mỗi
+`RESTORE_POLL_MS`. Timer chỉ đổi Z-order khi lớp Desktop đã hạ, rồi tự tắt; còn
+lại widget chỉ đè lên ứng dụng trong ~100–150 ms lúc cửa sổ đang hiện dần.
 
 **Chặn thông điệp** trong `CalendarWidget.nativeEvent` khi đang ghim:
 
