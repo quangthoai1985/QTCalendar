@@ -619,8 +619,11 @@ def launch_install(plan: InstallPlan) -> None:
         "-File",
         str(plan.script_path),
     ]
+    # cwd của app thường là thư mục cài đặt (shortcut đặt "Start in" = {app}); nếu PowerShell kế thừa
+    # cwd đó, chính nó sẽ khoá thư mục và lệnh đổi tên thành `.old` luôn thất bại.
     subprocess.Popen(
         cmd,
+        cwd=str(plan.script_path.parent),
         creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
         close_fds=True,
     )

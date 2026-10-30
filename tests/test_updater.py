@@ -4,6 +4,7 @@
 import os
 import shutil
 import tempfile
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -11,13 +12,16 @@ import pytest
 
 from qtcalendar.core.update_check import (
     AssetInfo,
+    InstallPlan,
     ReleaseInfo,
     cleanup_previous_update,
     format_size,
     is_newer,
+    launch_install,
     parse_release,
     parse_version,
     update_script_text,
+    write_update_script,
 )
 
 
@@ -105,6 +109,43 @@ class TestUpdaterScript:
             assert "DisplayVersion" in content
             assert "1234" in content
         finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    @pytest.mark.skipif(os.name != "nt", reason="Kịch bản cập nhật chạy bằng PowerShell trên Windows")
+    def test_launch_install_swaps_dir_when_app_cwd_is_install_dir(self):
+        # Shortcut Start Menu/Startup đặt "Start in" = thư mục cài đặt → app có cwd nằm trong
+        # thư mục sẽ bị đổi tên; tiến trình PowerShell không được kế thừa cwd này.
+        tmp = Path(tempfile.mkdtemp())
+        old_cwd = os.getcwd()
+        try:
+            install = tmp / "QT Calendar"
+            install.mkdir()
+            (install / "QTCalendar.exe").write_text("old", encoding="utf-8")
+            staging = tmp / "staging" / "QTCalendar"
+            staging.mkdir(parents=True)
+            (staging / "QTCalendar.exe").write_text("new", encoding="utf-8")
+
+            with patch("qtcalendar.core.update_check.updates_dir", return_value=tmp):
+                script = write_update_script(
+                    update_script_text(staging, install, "9.9.9", pid=0, relaunch=False)
+                )
+                plan = InstallPlan(staging, install, script, "9.9.9", relaunch=False)
+                os.chdir(install)
+                try:
+                    launch_install(plan)
+                finally:
+                    os.chdir(old_cwd)  # tương đương app cũ thoát
+
+            exe = install / "QTCalendar.exe"
+            deadline = time.monotonic() + 30
+            while time.monotonic() < deadline:
+                if exe.is_file() and exe.read_text(encoding="utf-8") == "new":
+                    break
+                time.sleep(0.5)
+            assert exe.read_text(encoding="utf-8") == "new"
+            assert (tmp / "QT Calendar.old" / "QTCalendar.exe").is_file()
+        finally:
+            os.chdir(old_cwd)
             shutil.rmtree(tmp, ignore_errors=True)
 
     def test_cleanup_previous_update(self):
