@@ -16,7 +16,7 @@ Hợp đồng API
     ``toggled_visibility``      –                               ẩn/hiện widget
     ``settings_requested``      –                               mở hộp thoại cài đặt
     ``quit_requested``          –                               thoát ứng dụng
-    ``view_requested``          ``str`` ("bloc"/"month")        đổi chế độ xem
+    ``month_toggled``           ``bool``                        bật/tắt lịch tháng
     ``opacity_requested``       ``float``                       đặt độ trong suốt
     ``pin_toggled``             ``bool``                        ghim/bỏ ghim desktop
     ``topmost_toggled``         ``bool``                        luôn nổi trên cùng
@@ -42,7 +42,7 @@ Cấu trúc menu bắt buộc::
 
     Hiện/Ẩn lịch                      (Ctrl+Alt+L)
     ─────────────
-    Chế độ xem            ▸  Lịch ngày (bloc) / Lịch tháng
+    ☐ Hiện lịch tháng        (lịch tháng dưới chân lịch bloc)
     Độ trong suốt        ▸  100% 90% 80% 70% 60% 50% 40% 30% 20%
     ─────────────
     ☑ Ghim sát Desktop               (mặc định bật)
@@ -183,7 +183,7 @@ class TrayIcon(QObject):
     toggled_visibility = Signal()
     settings_requested = Signal()
     quit_requested = Signal()
-    view_requested = Signal(str)
+    month_toggled = Signal(bool)
     opacity_requested = Signal(float)
     pin_toggled = Signal(bool)
     topmost_toggled = Signal(bool)
@@ -205,8 +205,7 @@ class TrayIcon(QObject):
 
         # Các QAction công khai để ``app.py``/hộp thoại có thể tham chiếu.
         self.action_show: QAction | None = None
-        self.action_view_bloc: QAction | None = None
-        self.action_view_month: QAction | None = None
+        self.action_show_month: QAction | None = None
         self.action_pin: QAction | None = None
         self.action_topmost: QAction | None = None
         self.action_lock: QAction | None = None
@@ -218,7 +217,6 @@ class TrayIcon(QObject):
         #: Danh sách ``(mức_opacity, QAction)`` theo đúng thứ tự menu.
         self.opacity_actions: list[tuple[float, QAction]] = []
 
-        self._view_group: QActionGroup | None = None
         self._opacity_group: QActionGroup | None = None
 
         self._icon = _resolve_icon(icon)
@@ -259,18 +257,10 @@ class TrayIcon(QObject):
 
             menu.addSeparator()
 
-            # 2) Chế độ xem (radio)
-            view_menu = menu.addMenu("Chế độ xem")
-            self._view_group = QActionGroup(view_menu)
-            self._view_group.setExclusive(True)
-            self.action_view_bloc = self._make_checkable(view_menu, "Lịch ngày (bloc)", True)
-            self.action_view_month = self._make_checkable(view_menu, "Lịch tháng", False)
-            for action, mode in (
-                (self.action_view_bloc, "bloc"),
-                (self.action_view_month, "month"),
-            ):
-                self._view_group.addAction(action)
-                action.triggered.connect(partial(self._on_view_action, mode))
+            # 2) Lịch tháng dưới chân lịch bloc (ô tick)
+            self.action_show_month = self._make_checkable(menu, "Hiện lịch tháng", False)
+            self.action_show_month.setToolTip("Hiện lịch tháng ngay dưới lịch ngày")
+            self.action_show_month.triggered.connect(self._on_month_action)
 
             # 3) Độ trong suốt nền (radio) – chữ luôn đục 100 %
             opacity_menu = menu.addMenu("Độ trong suốt nền")
@@ -359,9 +349,9 @@ class TrayIcon(QObject):
         if not self._syncing:
             self.toggled_visibility.emit()
 
-    def _on_view_action(self, mode: str, _checked: bool = False) -> None:
+    def _on_month_action(self, checked: bool = False) -> None:
         if not self._syncing:
-            self.view_requested.emit(str(mode))
+            self.month_toggled.emit(bool(checked))
 
     def _on_opacity_action(self, value: float, _checked: bool = False) -> None:
         if not self._syncing:
@@ -418,12 +408,11 @@ class TrayIcon(QObject):
             return
         self._syncing = True
         try:
-            # Chế độ xem
-            view = str(getattr(settings, "view", "bloc") or "bloc")
-            if self.action_view_bloc is not None:
-                self.action_view_bloc.setChecked(view != "month")
-            if self.action_view_month is not None:
-                self.action_view_month.setChecked(view == "month")
+            # Lịch tháng dưới chân bloc
+            if self.action_show_month is not None:
+                self.action_show_month.setChecked(
+                    bool(getattr(settings, "show_month", False))
+                )
 
             # Độ trong suốt
             step = _nearest_opacity(getattr(settings, "opacity", 1.0))

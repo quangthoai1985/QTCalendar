@@ -4,8 +4,9 @@ Trách nhiệm
 ===========
 
 * Dựng khung cửa sổ trong suốt, không viền, không thanh tiêu đề.
-* Chuyển giữa hai mặt: :class:`~qtcalendar.ui.bloc_view.BlocView` (lịch ngày)
-  và :class:`~qtcalendar.ui.month_view.MonthView` (lịch tháng).
+* Xếp dọc :class:`~qtcalendar.ui.bloc_view.BlocView` (lịch ngày) và – khi
+  người dùng bật – :class:`~qtcalendar.ui.month_view.MonthView` (lịch tháng)
+  ngay dưới chân tờ bloc; widget dài thêm xuống dưới.
 * Kéo thả bằng chuột trái, tự lưu toạ độ khi thả, tự kẹp vào màn hình.
 * Áp dụng độ trong suốt, bảng màu, tỉ lệ nội dung.
 * Ghim cửa sổ xuống mặt bàn Desktop (``SetParent(Progman)``) và có watchdog
@@ -19,7 +20,7 @@ Tín hiệu
 ========
 
 ``settings_changed``
-    Có thay đổi cần lưu (vị trí, độ mờ, chế độ xem, ghim…).
+    Có thay đổi cần lưu (vị trí, độ mờ, bật/tắt lịch tháng, ghim…).
 ``settings_requested``
     Người dùng bấm "Cài đặt…".
 ``quit_requested``
@@ -49,7 +50,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QMenu,
     QPushButton,
-    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -78,6 +78,11 @@ __all__ = [
     "MIN_HEIGHT",
     "MAX_WIDTH",
     "MAX_HEIGHT",
+    "MONTH_RATIO",
+    "MONTH_GAP_BASE",
+    "TAB_STRIP_BASE",
+    "month_extra_height",
+    "tab_strip_height",
 ]
 
 #: Kích thước chuẩn của bloc ở tỉ lệ 100 %.
@@ -93,6 +98,17 @@ MAX_HEIGHT = 1300
 #: Lề trong suốt quanh tấm giấy (để vẽ bóng đổ).
 SHADOW_MARGIN = 10
 
+#: Lịch tháng dưới chân bloc: chiều cao tờ lịch tháng = bề rộng giấy × hệ số.
+#: Không phụ thuộc tháng có 5 hay 6 hàng ⇒ widget không nhảy cỡ khi đổi tháng.
+MONTH_RATIO = 1.15
+
+#: Khe giữa tờ bloc và tờ lịch tháng (design-pixel, phóng theo bề rộng).
+MONTH_GAP_BASE = 6
+
+#: Dải đáy dành cho tab kéo bật/tắt lịch tháng (design-pixel). Nằm trong
+#: ``Settings.height`` nên khi lịch tháng đóng, khung widget không đổi cỡ.
+TAB_STRIP_BASE = 12
+
 #: Các mức độ trong suốt trong menu nhanh.
 OPACITY_STEPS = (1.00, 0.90, 0.80, 0.70, 0.60, 0.50, 0.40, 0.30, 0.20)
 
@@ -103,6 +119,35 @@ GRIP_SIZE = 18
 #: ``WS_EX_LAYERED`` – điều kiện bắt buộc để cửa sổ con của Progman hiển thị
 #: trên Windows 11 24H2 trở lên.
 _PINNED_MAX_OPACITY = 254.0 / 255.0
+
+
+def _width_ratio(width: int, scale: float) -> float:
+    """Hệ số phóng chỉ theo bề rộng – dùng cho khe và dải đáy.
+
+    Không dùng :meth:`CalendarWidget.content_scale` (phụ thuộc chiều cao bloc,
+    mà chiều cao bloc lại phụ thuộc dải đáy ⇒ vòng lặp khi kéo giãn).
+    """
+    return max(0.5, min(2.6, float(scale) * width / float(BASE_WIDTH)))
+
+
+def _month_gap_height(width: int, scale: float) -> int:
+    """Khe giữa hai tờ giấy."""
+    return styles.px(MONTH_GAP_BASE, _width_ratio(width, scale))
+
+
+def _month_sheet_height(width: int) -> int:
+    """Chiều cao tờ lịch tháng theo bề rộng tờ giấy."""
+    return int(round((width - 2 * SHADOW_MARGIN) * MONTH_RATIO))
+
+
+def month_extra_height(width: int, scale: float) -> int:
+    """Phần widget cao thêm khi mở lịch tháng (khe + tờ lịch tháng)."""
+    return _month_gap_height(width, scale) + _month_sheet_height(width)
+
+
+def tab_strip_height(content_scale: float) -> int:
+    """Chiều cao dải đáy dành cho tab kéo."""
+    return styles.px(TAB_STRIP_BASE, content_scale)
 
 
 def _clamp_size(value: int, low: int, high: int) -> int:
@@ -227,6 +272,8 @@ class CalendarWidget(QWidget):
         self._apply_theme()
         self._apply_opacity()
         self._start_timers()
+        self._resize_to_settings()
+        self.set_show_month(self._settings.show_month)
 
     # ------------------------------------------------------------ asset path
     @staticmethod
@@ -248,26 +295,33 @@ class CalendarWidget(QWidget):
         self.setWindowFlags(flags)
 
     def _build_ui(self) -> None:
-        """Dựng QStackedWidget + hai nút nổi góc trên phải."""
+        """Dựng cột dọc bloc → (khe → lịch tháng) → dải đáy + hai nút nổi."""
         margin = SHADOW_MARGIN
         layout = QVBoxLayout(self)
         layout.setContentsMargins(margin, margin, margin, margin)
         layout.setSpacing(0)
 
-        self._stack = QStackedWidget(self)
-        self._stack.setObjectName("CardStack")
-        layout.addWidget(self._stack)
+        self._bloc = BlocView(self)
+        layout.addWidget(self._bloc, 1)
 
-        self._bloc = BlocView(self._stack)
-        self._stack.addWidget(self._bloc)
+        # Khe giữa hai tờ giấy – chỉ hiện khi lịch tháng mở.
+        self._month_gap = QWidget(self)
+        self._month_gap.setObjectName("MonthGap")
+        self._month_gap.setFixedHeight(0)
+        self._month_gap.hide()
+        layout.addWidget(self._month_gap)
 
-        # Lịch tháng được tạo **lười** ở lần đầu người dùng mở nó. Lý do: dựng
-        # 42 ô ngày khiến Qt khởi tạo cache đo chữ/elide của Windows, tốn thêm
-        # ~70 MB – không đáng phải trả khi đa số người dùng chỉ dùng lịch ngày.
+        # Lịch tháng được tạo **lười** ở lần đầu người dùng mở nó (chèn vào
+        # layout ở vị trí 2). Lý do: dựng 42 ô ngày khiến Qt khởi tạo cache đo
+        # chữ/elide của Windows, tốn thêm ~70 MB – không đáng phải trả khi đa
+        # số người dùng chỉ dùng lịch ngày.
         self._month: MonthView | None = None
-        self._month_placeholder = QWidget(self._stack)
-        self._month_placeholder.setObjectName("MonthPlaceholder")
-        self._stack.addWidget(self._month_placeholder)
+
+        # Dải đáy cho tab kéo bật/tắt lịch tháng.
+        self._tab_strip = QWidget(self)
+        self._tab_strip.setObjectName("TabStrip")
+        self._tab_strip.setFixedHeight(tab_strip_height(1.0))
+        layout.addWidget(self._tab_strip)
 
         # Hai nút nổi: đổi chế độ xem + menu nhanh
         self._overlay = QWidget(self)
@@ -280,7 +334,7 @@ class CalendarWidget(QWidget):
         self._view_btn.setObjectName("ViewSwitch")
         self._view_btn.setCursor(Qt.PointingHandCursor)
         self._view_btn.setToolTip("Chuyển giữa lịch ngày và lịch tháng")
-        self._view_btn.clicked.connect(self.toggle_view)
+        self._view_btn.clicked.connect(self.toggle_month)
 
         # Dấu ba chấm dùng U+2026 (có sẵn trong Segoe UI). TUYỆT ĐỐI không dùng
         # các ký tự tượng hình như U+22EF "⋯", U+25B8 "▸", U+2699 "⚙": khi
@@ -321,7 +375,7 @@ class CalendarWidget(QWidget):
         """
         ratio = min(
             self.width() / float(BASE_WIDTH),
-            self.height() / float(BASE_HEIGHT),
+            self.bloc_height() / float(BASE_HEIGHT),
         )
         return max(0.5, min(2.6, float(self._settings.scale) * ratio))
 
@@ -355,6 +409,7 @@ class CalendarWidget(QWidget):
         self._bloc.apply_theme(visual, scale)
         if self._month is not None:
             self._month.apply_theme(visual, scale)
+        self._apply_sheet_heights()
         self._layout_overlay()
         self._layout_grip()
 
@@ -363,21 +418,17 @@ class CalendarWidget(QWidget):
         """Tạo lịch tháng ở lần dùng đầu tiên rồi nối tín hiệu."""
         if self._month is not None:
             return self._month
-        month = MonthView(self._stack)
-        self._stack.insertWidget(1, month)
-        self._stack.removeWidget(self._month_placeholder)
-        self._month_placeholder.deleteLater()
+        month = MonthView(self)
+        month.hide()
+        self.layout().insertWidget(2, month)
         self._month = month
 
         month.day_activated.connect(self._on_day_activated)
         month.month_changed.connect(self._on_month_changed)
         month.today_requested.connect(self.go_today)
-        # Lịch tháng có nút "Ngày" riêng để quay về bloc (vì hai nút nổi bị ẩn
-        # khi đang ở chế độ lịch tháng để không che tiêu đề/nút chuyển tháng).
-        if hasattr(month, "bloc_requested"):
-            month.bloc_requested.connect(lambda: self.set_view("bloc"))
 
         month.apply_theme(self._visual(), self.content_scale())
+        month.set_selected(self._selected)
         self._sync_month_view()
         return month
 
@@ -456,25 +507,74 @@ class CalendarWidget(QWidget):
         self._bloc.set_quote(self._quote)
 
     # ------------------------------------------------------------ chế độ xem
-    def set_view(self, view: str) -> None:
-        view = view if view in ("bloc", "month") else "bloc"
-        if view == self._settings.view and self._stack.currentIndex() == (
-            1 if view == "month" else 0
-        ):
+    def set_show_month(self, flag: bool) -> None:
+        """Bật/tắt lịch tháng ngay dưới chân lịch bloc.
+
+        Mọi lối vào (tab, nháy đúp, menu chuột phải, khay, Cài đặt) đều đi về
+        đây. So với trạng thái **hiển thị thực tế** chứ không so với
+        ``settings.show_month``: lúc khởi động và khi áp Cài đặt, giá trị đó đã
+        được ghi trước khi gọi hàm này.
+        """
+        flag = bool(flag)
+        shown = self._month is not None and not self._month.isHidden()
+        if shown == flag and self._settings.show_month == flag:
             return
-        self._settings.view = view
-        self._stack.setCurrentIndex(1 if view == "month" else 0)
-        if view == "month":
+        self._settings.show_month = flag
+        if flag:
             self._ensure_month()
-        self._view_btn.setText("NGÀY" if view == "month" else "THÁNG")
-        # Ở chế độ lịch tháng, tiêu đề và nút chuyển tháng nằm sát góc trên phải
-        # nên hai nút nổi được ẩn đi (lịch tháng có nút "Ngày" riêng).
-        self._overlay.setVisible(view == "bloc" and self.underMouse())
-        self._sync_month_view()
+            self._sync_month_view()
+        if self._month is not None:
+            self._month.setVisible(flag)
+        self._month_gap.setVisible(flag)
+        self._apply_sheet_heights()
+        # Kích hoạt layout trước để cửa sổ nhận kích thước tối thiểu mới (khi
+        # đóng lịch tháng, nếu không làm vậy Qt kẹp resize ở mức tối thiểu cũ).
+        self.layout().activate()
+        self._resize_to_settings()
+        self.layout().activate()
+        self._layout_overlay()
+        self.update()
         self.settings_changed.emit()
 
-    def toggle_view(self) -> None:
-        self.set_view("month" if self._settings.view == "bloc" else "bloc")
+    def toggle_month(self) -> None:
+        self.set_show_month(not self._settings.show_month)
+
+    # ------------------------------------------------------------- hình học
+    def extra_height(self) -> int:
+        """Phần widget cao thêm do lịch tháng (0 khi lịch tháng đóng)."""
+        if not self._settings.show_month:
+            return 0
+        return month_extra_height(self.width(), self._settings.scale)
+
+    def bloc_height(self) -> int:
+        """Chiều cao phần bloc (gồm lề bóng) = ``Settings.height`` khi lưu."""
+        return self.height() - self.extra_height()
+
+    def _apply_sheet_heights(self, width: int | None = None) -> None:
+        """Đặt chiều cao cố định cho dải đáy, khe và tờ lịch tháng.
+
+        Truyền ``width`` (bề rộng sắp resize tới) rồi ``layout().activate()``
+        *trước* khi resize: kích thước tối thiểu của cửa sổ phụ thuộc các chiều
+        cao này, nếu để cũ Qt sẽ kẹp resize ở mức tối thiểu cũ.
+        """
+        if not hasattr(self, "_tab_strip"):
+            return
+        width = self.width() if width is None else int(width)
+        self._tab_strip.setFixedHeight(
+            tab_strip_height(_width_ratio(width, self._settings.scale))
+        )
+        if self._month is not None and self._settings.show_month:
+            self._month_gap.setFixedHeight(
+                _month_gap_height(width, self._settings.scale)
+            )
+            self._month.setFixedHeight(_month_sheet_height(width))
+
+    def _sheet_rects(self) -> list[QRect]:
+        """Các tờ giấy đang hiện (toạ độ cửa sổ): bloc, và lịch tháng nếu mở."""
+        rects = [self._bloc.geometry()]
+        if self._month is not None and not self._month.isHidden():
+            rects.append(self._month.geometry())
+        return rects
 
     def go_today(self) -> None:
         """Quay về hôm nay (cả bloc lẫn lịch tháng)."""
@@ -511,7 +611,6 @@ class CalendarWidget(QWidget):
         else:
             self._selected = value
         self._refresh_content()
-        self.set_view("bloc")
 
     # -------------------------------------------------------------- theme
     def apply_theme(self, name: str | None = None) -> None:
@@ -589,17 +688,23 @@ class CalendarWidget(QWidget):
         self._apply_theme()
         self._resize_to_settings()
         self._apply_opacity()
-        self.set_view(self._settings.view)
+        self.set_show_month(self._settings.show_month)
         self._apply_placement()
         self._refresh_content()
 
     def _resize_to_settings(self) -> None:
+        """Đặt kích thước theo cấu hình: bloc ``width × height`` + lịch tháng nếu mở."""
         w = _clamp_size(self._settings.width, MIN_WIDTH, MAX_WIDTH)
         h = _clamp_size(self._settings.height, MIN_HEIGHT, MAX_HEIGHT)
-        if self.width() != w or self.height() != h:
-            self.resize(w, h)
         self._settings.width = w
         self._settings.height = h
+        total = h
+        if self._settings.show_month:
+            total += month_extra_height(w, self._settings.scale)
+        if self.width() != w or self.height() != total:
+            self._apply_sheet_heights(w)
+            self.layout().activate()
+            self.resize(w, total)
 
     def sizeHint(self) -> QSize:  # pragma: no cover - Qt hint
         return QSize(self._settings.width, self._settings.height)
@@ -611,6 +716,7 @@ class CalendarWidget(QWidget):
 
     def resizeEvent(self, event) -> None:  # noqa: N802 (Qt API)
         super().resizeEvent(event)
+        self._apply_sheet_heights()
         self._layout_overlay()
         self._layout_grip()
         if hasattr(self, "_content_scale_timer"):
@@ -651,6 +757,11 @@ class CalendarWidget(QWidget):
         width = _clamp_size(
             self._resize_start_size.width() + delta.x(), min_size.width(), max_w
         )
+        # Dải đáy co theo bề rộng ⇒ chiều cao tối thiểu đổi theo; tính lại
+        # sau khi đã áp chiều cao dải đáy cho bề rộng mới.
+        self._apply_sheet_heights(width)
+        self.layout().activate()
+        min_size = self._min_size()
         height = _clamp_size(
             self._resize_start_size.height() + delta.y(), min_size.height(), max_h
         )
@@ -719,7 +830,7 @@ class CalendarWidget(QWidget):
         """
         if not hasattr(self, "_overlay"):
             return
-        visible = (hovered or self._dragging) and self._settings.view == "bloc"
+        visible = hovered or self._dragging
         self._overlay.setVisible(visible)
         if visible:
             self._overlay.raise_()
@@ -730,10 +841,9 @@ class CalendarWidget(QWidget):
 
     # ------------------------------------------------------------- vẽ bóng
     def paintEvent(self, event) -> None:  # noqa: N802 (Qt API)
-        """Vẽ bóng đổ mềm quanh tấm giấy (rẻ hơn QGraphicsDropShadowEffect)."""
+        """Vẽ bóng đổ mềm quanh từng tờ giấy (rẻ hơn QGraphicsDropShadowEffect)."""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
-        rect = self._card_rect()
         radius = self._theme.radius
         shadow = QColor(self._theme.shadow)
         # Bóng đổ cũng mờ đi theo nền (bóng không phải chữ).
@@ -741,13 +851,16 @@ class CalendarWidget(QWidget):
         shadow_alpha = alpha_of(visual.paper)
         if shadow_alpha < 0.999:
             painter.setOpacity(shadow_alpha)
-        for i in range(6, 0, -1):
-            alpha = int(6 + (7 - i) * 4)
-            pen = QPen(QColor(shadow.red(), shadow.green(), shadow.blue(), alpha))
-            pen.setWidth(1)
-            painter.setPen(pen)
-            painter.setBrush(Qt.NoBrush)
-            painter.drawRoundedRect(rect.adjusted(-i, -i + 1, i, i + 2), radius + i, radius + i)
+        painter.setBrush(Qt.NoBrush)
+        for rect in self._sheet_rects():
+            for i in range(6, 0, -1):
+                alpha = int(6 + (7 - i) * 4)
+                pen = QPen(QColor(shadow.red(), shadow.green(), shadow.blue(), alpha))
+                pen.setWidth(1)
+                painter.setPen(pen)
+                painter.drawRoundedRect(
+                    rect.adjusted(-i, -i + 1, i, i + 2), radius + i, radius + i
+                )
         painter.end()
 
     # ------------------------------------------------------------ độ mờ
@@ -759,9 +872,9 @@ class CalendarWidget(QWidget):
         + UpdateLayeredWindow (alpha từng điểm ảnh), giữ góc bo tròn và bóng đổ hoàn
         hảo, tuyệt đối không có quầng đen quanh khung lịch.
         """
-        effect = self._stack.graphicsEffect()
-        if effect is not None:
-            self._stack.setGraphicsEffect(None)
+        for view in (self._bloc, self._month):
+            if view is not None and view.graphicsEffect() is not None:
+                view.setGraphicsEffect(None)
         self.setWindowOpacity(1.0)
 
     def _ensure_pinned_layered(self) -> None:
@@ -903,7 +1016,7 @@ class CalendarWidget(QWidget):
 
     def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802 (Qt API)
         if event.button() == Qt.LeftButton and not self._drag_moved:
-            self.toggle_view()
+            self.toggle_month()
             event.accept()
             return
         super().mouseDoubleClickEvent(event)
@@ -986,16 +1099,11 @@ class CalendarWidget(QWidget):
         act_hide.triggered.connect(self.hide_requested.emit)
         menu.addSeparator()
 
-        # --- chế độ xem
-        view_menu = menu.addMenu("Chế độ xem")
-        act_bloc = view_menu.addAction("Lịch ngày (bloc)")
-        act_bloc.setCheckable(True)
-        act_bloc.setChecked(self._settings.view == "bloc")
-        act_bloc.triggered.connect(lambda: self.set_view("bloc"))
-        act_month = view_menu.addAction("Lịch tháng")
+        # --- lịch tháng dưới chân bloc
+        act_month = menu.addAction("Hiện lịch tháng")
         act_month.setCheckable(True)
-        act_month.setChecked(self._settings.view == "month")
-        act_month.triggered.connect(lambda: self.set_view("month"))
+        act_month.setChecked(self._settings.show_month)
+        act_month.triggered.connect(self.set_show_month)
 
         # --- độ trong suốt
         opacity_menu = menu.addMenu("Độ trong suốt (nền)")

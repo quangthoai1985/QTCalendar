@@ -24,7 +24,6 @@ from qtcalendar.core.config import (
     PLACEMENTS,
     QUOTE_MODES,
     SCHEMA_VERSION,
-    VIEWS,
     ConfigStore,
     Settings,
 )
@@ -37,7 +36,7 @@ from qtcalendar.core.theme import THEMES
 def test_gia_tri_mac_dinh_hop_le_va_serializable():
     """``Settings()`` phải dựng được ngay và chuyển thành JSON không lỗi."""
     s = Settings()
-    assert s.view in VIEWS
+    assert s.show_month is False
     assert s.placement in PLACEMENTS
     assert s.quote_mode in QUOTE_MODES
     assert s.theme in THEMES
@@ -79,7 +78,6 @@ def test_kep_gia_tri_so_ve_khoang_hop_le(truong: str, gia_tri_rac: object, ky_vo
     "truong,gia_tri,ky_vong",
     [
         ("theme", "theme_khong_ton_tai", "giay_do"),
-        ("view", "khong_co", "bloc"),
         ("placement", "khong_co", "desktop"),
         ("quote_mode", "khong_co", "daily"),
     ],
@@ -140,7 +138,7 @@ def test_luu_va_doc_lai_nguyen_ven(tmp_config_dir: Path):
         scale=1.25,
         opacity=0.8,
         theme="dem_sao",
-        view="month",
+        show_month=True,
         show_quote=False,
         quote_mode="random",
         placement="floating",
@@ -240,7 +238,7 @@ def test_bo_qua_khoa_la_va_gia_tri_sai_kieu(tmp_config_dir: Path):
     s = ConfigStore(tep).load()
     assert s.width == 500
     assert s.theme == "xanh_ngoc"
-    assert s.view == "month"
+    assert s.show_month is True  # khoá view cũ được chuyển đổi
     assert s.height == 468  # mặc định
     assert s.opacity == 1.0  # mặc định
 
@@ -278,7 +276,7 @@ def test_from_dict_voi_du_lieu_rac_khong_no_ra():
     assert s.opacity == 1.0  # NaN -> mặc định
     assert s.scale == 2.0  # kẹp biên trên
     assert s.theme == "giay_do"
-    assert s.view == "bloc"
+    assert s.show_month is False
     assert s.show_quote is False  # 0 -> False
     assert s.x == 1  # float -> int
     assert s.month_anchor == "2023-02"
@@ -377,3 +375,28 @@ def test_diff_liet_ke_dung_truong_khac():
     assert set(khac) == {"width", "theme"}
     assert khac["width"] == (344, 500)
     assert a.diff(a) == {}
+
+
+# ===========================================================================
+# Lịch tháng dưới chân bloc: show_month thay cho view (schema 2)
+# ===========================================================================
+@pytest.mark.parametrize(
+    "raw,ky_vong",
+    [
+        ({"view": "month"}, True),
+        ({"view": "bloc"}, False),
+        ({}, False),
+        ({"view": "month", "show_month": False}, False),
+        ({"view": "bloc", "show_month": True}, True),
+        ({"show_month": "khong-phai-bool"}, False),
+    ],
+)
+def test_chuyen_doi_view_cu_sang_show_month(raw: dict, ky_vong: bool):
+    assert Settings.from_dict(raw).show_month is ky_vong
+
+
+def test_khong_con_ghi_khoa_view_va_schema_2():
+    raw = Settings().to_dict()
+    assert "view" not in raw
+    assert raw["show_month"] is False
+    assert raw["schema_version"] == 2 == SCHEMA_VERSION

@@ -29,16 +29,12 @@ __all__ = [
     "config_path",
     "data_dir",
     "app_root",
-    "VIEWS",
     "PLACEMENTS",
     "QUOTE_MODES",
     "LUNAR_ENGINES",
 ]
 
-SCHEMA_VERSION = 1
-
-#: Hai chế độ xem
-VIEWS = ("bloc", "month")
+SCHEMA_VERSION = 2
 
 #: Cách neo cửa sổ vào desktop
 #: * ``desktop``  – ghim làm con của Progman (sống sót Win + D)
@@ -117,7 +113,7 @@ class Settings:
     theme: str = "giay_do"
     #: Màu nền giấy tuỳ chọn ``"#RRGGBB"``; chuỗi rỗng = dùng màu gốc của theme.
     bg_color: str = ""
-    view: str = "bloc"  #: ``bloc`` | ``month``
+    show_month: bool = False  #: hiện lịch tháng ngay dưới chân lịch bloc
     show_quote: bool = True
     show_auspicious: bool = True
     show_tiet_khi: bool = True
@@ -160,8 +156,6 @@ class Settings:
             self.bg_color = str(self.bg_color).strip().upper()
             if not self.bg_color.startswith("#"):
                 self.bg_color = "#" + self.bg_color
-        if self.view not in VIEWS:
-            self.view = "bloc"
         if self.placement not in PLACEMENTS:
             self.placement = "desktop"
         if self.quote_mode not in QUOTE_MODES:
@@ -196,6 +190,10 @@ class Settings:
             coerced = _coerce(f.name, f.type, raw[f.name])
             if coerced is not None:
                 kwargs[f.name] = coerced
+        # Schema 1 lưu ``view = "month"`` (chế độ chỉ có lịch tháng); nay lịch
+        # tháng hiện dưới chân bloc ⇒ người đang dùng lịch tháng thấy cả hai.
+        if "show_month" not in raw and raw.get("view") == "month":
+            kwargs["show_month"] = True
         return cls(**kwargs).clamp()
 
     def diff(self, other: "Settings") -> dict[str, tuple[Any, Any]]:

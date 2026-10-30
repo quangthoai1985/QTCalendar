@@ -9,6 +9,7 @@ phải) mà người dùng yêu cầu: kéo được to/nhỏ, có giới hạn,
 from __future__ import annotations
 
 import os
+from datetime import date
 
 import pytest
 
@@ -16,7 +17,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import QPoint  # noqa: E402
+from PySide6.QtCore import QPoint, QRect, Qt  # noqa: E402
+from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from qtcalendar.core.config import Settings  # noqa: E402
@@ -27,7 +29,9 @@ from qtcalendar.ui.widget_window import (  # noqa: E402
     MAX_WIDTH,
     MIN_HEIGHT,
     MIN_WIDTH,
+    SHADOW_MARGIN,
     CalendarWidget,
+    month_extra_height,
 )
 
 
@@ -192,3 +196,74 @@ def test_bo_ghim_tro_lai_trong_suot(widget, monkeypatch):
     assert widget.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
     assert widget.layout().contentsMargins().left() == ww.SHADOW_MARGIN
     assert 0.45 < alpha_of(widget._visual_theme.paper) < 0.55
+
+
+# --------------------------------------------------------------------------- #
+# Lịch tháng dưới chân bloc
+# --------------------------------------------------------------------------- #
+def test_mo_lich_thang_cao_them_dung_extra(widget):
+    w, h = widget.width(), widget.height()
+    widget.set_show_month(True)
+    assert widget.width() == w
+    assert widget.height() == h + month_extra_height(w, widget._settings.scale)
+    assert widget._settings.show_month is True
+
+
+def test_dong_lich_thang_ve_kich_thuoc_cu(widget):
+    widget.set_show_month(True)
+    widget.set_show_month(False)
+    assert (widget.width(), widget.height()) == (BASE_WIDTH, BASE_HEIGHT)
+    assert widget._settings.show_month is False
+
+
+def test_bat_tat_khong_doi_he_so_phong(widget):
+    truoc = widget.content_scale()
+    widget.set_show_month(True)
+    assert widget.content_scale() == pytest.approx(truoc)
+    widget.set_show_month(False)
+    assert widget.content_scale() == pytest.approx(truoc)
+
+
+def test_chua_mo_thi_chua_tao_lich_thang(widget):
+    assert widget._month is None
+
+
+def test_hai_to_giay_khi_mo(widget, qapp):
+    assert len(widget._sheet_rects()) == 1
+    widget.set_show_month(True)
+    qapp.processEvents()
+    bloc, month = widget._sheet_rects()
+    assert month.top() > bloc.bottom()
+    assert month.width() == bloc.width()
+
+
+def test_nhay_dup_bat_tat_lich_thang(widget):
+    QTest.mouseDClick(widget, Qt.LeftButton, pos=widget.rect().center())
+    assert widget._settings.show_month is True
+
+
+def test_khoi_dong_voi_show_month_true(qapp):
+    s = Settings(show_month=True)
+    w = CalendarWidget(s)  # app.py không gọi apply_settings lúc khởi động
+    try:
+        assert w._month is not None
+        assert w.height() == s.height + month_extra_height(s.width, s.scale)
+    finally:
+        w.deleteLater()
+
+
+def test_bat_tat_khi_dang_ghim_khong_bo_ghim(widget, monkeypatch):
+    from qtcalendar.ui import widget_window as ww
+
+    calls: list[int] = []
+    monkeypatch.setattr(ww.desktop_pin, "pin", lambda hwnd: True)
+    monkeypatch.setattr(ww.desktop_pin, "is_pinned", lambda hwnd: True)
+    monkeypatch.setattr(ww.desktop_pin, "update_z_order", lambda hwnd: None)
+    monkeypatch.setattr(
+        ww.desktop_pin, "unpin", lambda hwnd: calls.append(hwnd) or True
+    )
+    widget.set_placement("desktop")
+    calls.clear()
+    widget.set_show_month(True)
+    widget.set_show_month(False)
+    assert calls == []

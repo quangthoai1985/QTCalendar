@@ -118,7 +118,9 @@ class AppController(QObject):
         self._save_timer.timeout.connect(self._flush_settings)
 
         self._widget = CalendarWidget(settings)
-        self._widget.resize(settings.width, settings.height)
+        self._widget.resize(
+            settings.width, settings.height + self._widget.extra_height()
+        )
         self._build_tray()
         self._wire()
 
@@ -151,7 +153,7 @@ class AppController(QObject):
         tray.toggled_visibility.connect(self.toggle_widget)
         tray.settings_requested.connect(self.open_settings)
         tray.quit_requested.connect(self.quit_app)
-        tray.view_requested.connect(w.set_view)
+        tray.month_toggled.connect(w.set_show_month)
         tray.opacity_requested.connect(w.set_opacity)
         tray.pin_toggled.connect(
             lambda checked: w.set_placement("desktop" if checked else "floating")
@@ -182,10 +184,10 @@ class AppController(QObject):
         # Tự động kiểm tra bản cập nhật ngầm sau 3 giây khởi động
         QTimer.singleShot(3000, lambda: self.check_for_updates(silent=True))
         _LOG.info(
-            "QT Calendar %s sẵn sàng – theme=%s, view=%s, opacity=%.2f",
+            "QT Calendar %s sẵn sàng – theme=%s, show_month=%s, opacity=%.2f",
             __version__,
             self._settings.theme,
-            self._settings.view,
+            self._settings.show_month,
             self._settings.opacity,
         )
 
@@ -382,7 +384,7 @@ def _run_smoke(settings: Settings, out_path: Path, view: str, theme: str | None)
     s = settings.copy()
     s.placement = "floating"
     s.hidden = False
-    s.view = view if view in ("bloc", "month") else "bloc"
+    s.show_month = view == "month"
     if theme:
         s.theme = theme
     s.opacity = 1.0
@@ -391,11 +393,11 @@ def _run_smoke(settings: Settings, out_path: Path, view: str, theme: str | None)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     widget = CalendarWidget(s)
-    widget.resize(s.width, s.height)
+    widget.resize(s.width, s.height + widget.extra_height())
     widget.move(40, 40)
     widget.show()
     QApplication.processEvents()
-    widget.set_view(s.view)
+    widget.set_show_month(s.show_month)
     QApplication.processEvents()
     # Áp hệ số phóng theo kích thước ngay (bình thường việc này có debounce
     # 90 ms; ở chế độ chụp ảnh cần kết quả tức thì).
@@ -408,7 +410,7 @@ def _run_smoke(settings: Settings, out_path: Path, view: str, theme: str | None)
         "saved": bool(ok),
         "png": str(out_path),
         "pixels": [widget.width(), widget.height()],
-        "view": s.view,
+        "show_month": s.show_month,
         "theme": s.theme,
         "engine": s.lunar_engine,
         "window_opacity": round(widget.windowOpacity(), 3),
@@ -438,7 +440,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         "--view",
         choices=("bloc", "month"),
         default="bloc",
-        help="chế độ xem khi chạy --smoke",
+        help="khi chạy --smoke: bloc = chỉ lịch ngày, month = lịch ngày + lịch tháng bên dưới",
     )
     parser.add_argument("--theme", help="mã bảng màu khi chạy --smoke")
     parser.add_argument("--reset", action="store_true", help="xoá cấu hình, về mặc định")

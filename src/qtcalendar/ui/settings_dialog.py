@@ -84,13 +84,11 @@ from PySide6.QtGui import (
     QPixmap,
 )
 from PySide6.QtWidgets import (
-    QButtonGroup,
     QCheckBox,
     QColorDialog,
     QComboBox,
     QDialog,
     QFormLayout,
-    QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -117,10 +115,6 @@ from ..core.theme import (
 __all__ = ["SettingsDialog"]
 
 #: Nhãn hiển thị cho từng giá trị ``Settings.*``.
-VIEW_LABELS: tuple[tuple[str, str], ...] = (
-    ("bloc", "Lịch ngày"),
-    ("month", "Lịch tháng"),
-)
 PLACEMENT_LABELS: tuple[tuple[str, str], ...] = (
     ("desktop", "Ghim sát Desktop"),
     ("floating", "Cửa sổ nổi"),
@@ -323,24 +317,6 @@ def _dialog_qss(theme: Theme) -> str:
                 " outline: 0; }"
             ),
             "QComboBox QAbstractItemView::item { min-height: 22px; padding: 2px 6px; }",
-            (
-                "QFrame#SegmentGroup {"
-                f" background: {field_bg}; border: 1px solid {border};"
-                " border-radius: 8px; }"
-            ),
-            (
-                f"QPushButton#SegmentButton {{ color: {theme.ink_soft};"
-                " background: transparent; border: none; border-radius: 6px;"
-                " padding: 5px 14px; font-size: 11px; font-weight: normal; }"
-            ),
-            (
-                f"QPushButton#SegmentButton:hover:!checked {{ color: {theme.ink};"
-                f" background: {hover_bg}; }}"
-            ),
-            (
-                f"QPushButton#SegmentButton:checked {{ color: {theme.accent};"
-                f" background: {theme.paper}; font-weight: bold; }}"
-            ),
             "QSlider { min-height: 20px; background: transparent; }",
             "QSlider::groove:horizontal { height: 4px; border-radius: 2px; }",
             f"QSlider::groove:horizontal {{ background: {border}; }}",
@@ -922,25 +898,7 @@ class SettingsDialog(QDialog):
             75, 200, 100, "%"
         )
 
-        self._view_frame = QFrame(page)
-        self._view_frame.setObjectName("SegmentGroup")
-        self._view_frame.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
-        )
-        view_layout = QHBoxLayout(self._view_frame)
-        view_layout.setContentsMargins(2, 2, 2, 2)
-        view_layout.setSpacing(2)
-        self._view_group = QButtonGroup(self)
-        self._view_group.setExclusive(True)
-        for value, label in VIEW_LABELS:
-            button = QPushButton(label, self._view_frame)
-            button.setObjectName("SegmentButton")
-            button.setCheckable(True)
-            button.setAutoDefault(False)
-            button.setProperty("value", value)
-            button.setCursor(Qt.CursorShape.PointingHandCursor)
-            view_layout.addWidget(button, 1)
-            self._view_group.addButton(button)
+        self._chk_show_month = self._new_checkbox("Hiện lịch tháng dưới lịch ngày")
 
         self._chk_quote = self._new_checkbox("Hiện ca dao")
         self._chk_auspicious = self._new_checkbox("Hiện giờ hoàng đạo")
@@ -962,7 +920,7 @@ class SettingsDialog(QDialog):
         form.addRow(self._field_label("Màu nền giấy"), self._build_bg_row())
         form.addRow(self._field_label("Độ trong suốt"), self._opacity_row)
         form.addRow(self._field_label("Cỡ nội dung"), self._scale_row)
-        form.addRow(self._field_label("Chế độ xem"), self._view_frame)
+        form.addRow(self._field_label("Chế độ xem"), self._chk_show_month)
         form.addRow(self._field_label("Hiển thị"), self._vertical(display_box))
         form.addRow(self._field_label("Nguồn ca dao"), self._quote_combo)
         layout.addLayout(form)
@@ -1234,11 +1192,7 @@ class SettingsDialog(QDialog):
         self._opacity_value.setText(f"{self._opacity_slider.value()}%")
         self._scale_value.setText(f"{self._scale_slider.value()}%")
 
-        for button in self._view_group.buttons():
-            button.setChecked(button.property("value") == settings.view)
-        if not any(b.isChecked() for b in self._view_group.buttons()):
-            first = self._view_group.buttons()[0]
-            first.setChecked(True)
+        self._chk_show_month.setChecked(bool(settings.show_month))
 
         self._chk_quote.setChecked(bool(settings.show_quote))
         self._chk_auspicious.setChecked(bool(settings.show_auspicious))
@@ -1454,7 +1408,7 @@ class SettingsDialog(QDialog):
             settings.theme = theme_name
         settings.opacity = self._opacity_slider.value() / 100.0
         settings.scale = self._scale_slider.value() / 100.0
-        settings.view = self._current_view()
+        settings.show_month = self._chk_show_month.isChecked()
         settings.show_quote = self._chk_quote.isChecked()
         settings.show_auspicious = self._chk_auspicious.isChecked()
         settings.show_tiet_khi = self._chk_tiet_khi.isChecked()
@@ -1477,14 +1431,6 @@ class SettingsDialog(QDialog):
         settings.clamp()
         self._draft = settings
         return settings.copy()
-
-    def _current_view(self) -> str:
-        for button in self._view_group.buttons():
-            if button.isChecked():
-                value = button.property("value")
-                if isinstance(value, str):
-                    return value
-        return self._draft.view
 
     # ----- API công khai --------------------------------------------------- #
     def settings(self) -> Settings:
