@@ -126,8 +126,12 @@ class TestUpdaterScript:
             (staging / "QTCalendar.exe").write_text("new", encoding="utf-8")
 
             with patch("qtcalendar.core.update_check.updates_dir", return_value=tmp):
+                # AppId giả: không được ghi DisplayVersion vào khoá gỡ cài đặt thật.
                 script = write_update_script(
-                    update_script_text(staging, install, "9.9.9", pid=0, relaunch=False)
+                    update_script_text(
+                        staging, install, "9.9.9", pid=0, relaunch=False,
+                        inno_app_id="{00000000-0000-0000-0000-QTCALTEST000}",
+                    )
                 )
                 plan = InstallPlan(staging, install, script, "9.9.9", relaunch=False)
                 os.chdir(install)
