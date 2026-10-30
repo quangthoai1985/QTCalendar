@@ -807,7 +807,10 @@ class CalendarWidget(QWidget):
         self._settings.width = BASE_WIDTH
         self._settings.height = BASE_HEIGHT
         self._resize_to_settings()
-        self._clamp_into_screen()
+        if self._settings.show_month:
+            self._fit_into_screen()
+        else:
+            self._clamp_into_screen()
         self._store_geometry()
         self.settings_changed.emit()
 
@@ -1062,7 +1065,12 @@ class CalendarWidget(QWidget):
         super().mouseReleaseEvent(event)
 
     def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802 (Qt API)
-        if event.button() == Qt.LeftButton and not self._drag_moved:
+        # Nháy đúp lan lên từ lịch tháng (ô ngày, tiêu đề…) là thao tác trong
+        # lịch tháng – không được đóng lịch tháng.
+        in_month = self._month is not None and not self._month.isHidden() and (
+            self._month.geometry().contains(event.position().toPoint())
+        )
+        if event.button() == Qt.LeftButton and not self._drag_moved and not in_month:
             self.toggle_month()
             event.accept()
             return
@@ -1122,22 +1130,14 @@ class CalendarWidget(QWidget):
             self.move(self.pos() + QPoint(dx, dy))
 
     def _store_geometry(self) -> None:
-        """Lưu vị trí/kích thước.
+        """Lưu vị trí/kích thước (chiều cao = phần bloc, không gồm lịch tháng).
 
-        Khi đang ghim, ``QWidget.pos()`` là toạ độ tương đối trong cửa sổ cha
-        (Progman) chứ không phải toạ độ màn hình, nên phải hỏi Win32 để có
-        toạ độ màn hình thật.
+        Ghim kiểu Rainmeter vẫn giữ cửa sổ top-level nên toạ độ Qt luôn là toạ
+        độ màn hình **logic** – không dùng ``GetWindowRect`` (pixel vật lý, lớn
+        hơn khi Windows đặt tỉ lệ hiển thị 125 % / 150 %).
         """
         pos = self.pos()
         size_w, size_h = self.width(), self.bloc_height()
-        if self._pinned:
-            from ..platform import win32
-
-            rect = win32.get_window_rect(int(self.winId()))
-            if rect:
-                pos = QPoint(rect[0], rect[1])
-                size_w = rect[2] - rect[0]
-                size_h = rect[3] - rect[1] - self.extra_height()
         self._settings.x = int(pos.x())
         self._settings.y = int(pos.y())
         self._settings.width = int(size_w)

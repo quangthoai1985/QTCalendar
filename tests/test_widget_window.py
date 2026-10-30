@@ -413,3 +413,49 @@ def test_qua_nua_dem_bo_chon(widget):
     widget._on_new_day()
     assert widget._selected is None
     assert widget._month.selected() is None
+
+
+# --------------------------------------------------------------------------- #
+# Hồi quy từ review toàn nhánh
+# --------------------------------------------------------------------------- #
+def test_nhay_dup_o_ngay_khong_dong_lich_thang(widget):
+    widget.set_show_month(True)
+    cell = next(c for c in widget._month._cells if c.isVisible())
+    QTest.mouseDClick(cell, Qt.LeftButton)
+    assert widget._settings.show_month is True
+    assert widget._month.isHidden() is False
+
+
+def test_dat_lai_kich_thuoc_khi_mo_tren_man_hinh_thap(widget, monkeypatch):
+    _gia_man_hinh(monkeypatch, widget, (0, 0, 1280, 672))
+    widget.move(100, 0)
+    widget.set_show_month(True)  # bị thu nhỏ cho vừa ⇒ "Đặt lại" vẫn bật
+    widget.reset_size()
+    assert widget.pos().y() + SHADOW_MARGIN >= 0
+    assert widget.pos().y() + widget.height() - SHADOW_MARGIN <= 672
+
+
+def test_luu_kich_thuoc_khi_ghim_dung_don_vi_logic(widget, monkeypatch):
+    """Ghim kiểu Rainmeter vẫn là cửa sổ top-level: toạ độ Qt đã là logic.
+
+    ``GetWindowRect`` trả pixel vật lý (ở 125 % lớn hơn 1,25 lần) – không
+    được dùng để lưu kích thước.
+    """
+    from qtcalendar.platform import win32
+
+    widget.set_show_month(True)
+    widget._pinned = True
+    g = widget.geometry()
+    monkeypatch.setattr(
+        win32,
+        "get_window_rect",
+        lambda hwnd: (
+            int(g.x() * 1.25),
+            int(g.y() * 1.25),
+            int((g.x() + g.width()) * 1.25),
+            int((g.y() + g.height()) * 1.25),
+        ),
+    )
+    widget._store_geometry()
+    widget._pinned = False
+    assert (widget._settings.width, widget._settings.height) == (BASE_WIDTH, BASE_HEIGHT)
