@@ -267,3 +267,45 @@ def test_bat_tat_khi_dang_ghim_khong_bo_ghim(widget, monkeypatch):
     widget.set_show_month(True)
     widget.set_show_month(False)
     assert calls == []
+
+
+# --------------------------------------------------------------------------- #
+# Tab kéo ở chân widget
+# --------------------------------------------------------------------------- #
+def test_tab_dong_cham_mep_duoi_bloc(widget):
+    tab = widget._tab
+    assert tab.isVisible()
+    assert tab.label() == "THÁNG"
+    assert tab.geometry().top() == widget._bloc.geometry().bottom() + 1
+    assert abs(tab.geometry().center().x() - widget._bloc.geometry().center().x()) <= 1
+    assert widget.rect().contains(tab.geometry())
+
+
+def test_tab_mo_cham_mep_duoi_lich_thang(widget):
+    widget.set_show_month(True)
+    tab = widget._tab
+    assert tab.label() == "ẨN"
+    assert tab.geometry().top() == widget._month.geometry().bottom() + 1
+    assert widget.rect().contains(tab.geometry())
+
+
+def test_bam_tab_bat_tat(widget):
+    QTest.mouseClick(widget._tab, Qt.LeftButton)
+    assert widget._settings.show_month is True
+    QTest.mouseClick(widget._tab, Qt.LeftButton)
+    assert widget._settings.show_month is False
+
+
+def test_khong_con_nut_noi_thang(widget):
+    assert not hasattr(widget, "_view_btn")
+
+
+def test_doi_theme_khi_mo_cap_nhat_tab_va_lich_thang(widget):
+    from qtcalendar.core.theme import alpha_of
+
+    widget.set_show_month(True)
+    widget.set_theme_name("dem_sao")
+    assert widget._tab._theme.name == "dem_sao"
+    assert widget._month._theme.name == "dem_sao"
+    widget.set_opacity(0.4)
+    assert alpha_of(widget._tab._theme.paper) == pytest.approx(0.4, abs=0.02)

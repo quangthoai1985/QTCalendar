@@ -11,7 +11,8 @@ Trách nhiệm
 * Áp dụng độ trong suốt, bảng màu, tỉ lệ nội dung.
 * Ghim cửa sổ xuống mặt bàn Desktop (``SetParent(Progman)``) và có watchdog
   tự ghim lại nếu Explorer khởi động lại.
-* Menu ngữ cảnh chuột phải + hai nút nổi ở góc trên (đổi chế độ xem, menu).
+* Menu ngữ cảnh chuột phải + nút menu nổi ở góc trên; tab kéo ở chân để
+  bật/tắt lịch tháng (:class:`~qtcalendar.ui.month_tab.MonthTab`).
 
 Việc mở hộp thoại cài đặt, lưu tệp cấu hình, khay hệ thống do ``app.py``
 (tầng điều phối) đảm nhận – widget chỉ phát tín hiệu.
@@ -34,7 +35,7 @@ from __future__ import annotations
 import time
 from datetime import date, datetime, timedelta
 
-from PySide6.QtCore import QPoint, QRect, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QPoint, QRect, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QColor,
     QCursor,
@@ -67,6 +68,7 @@ from ..core.theme import (
 )
 from ..platform import autostart, desktop_pin
 from .bloc_view import BlocView
+from .month_tab import MonthTab
 from .month_view import MonthView
 from . import styles
 
@@ -323,18 +325,12 @@ class CalendarWidget(QWidget):
         self._tab_strip.setFixedHeight(tab_strip_height(1.0))
         layout.addWidget(self._tab_strip)
 
-        # Hai nút nổi: đổi chế độ xem + menu nhanh
+        # Nút nổi menu nhanh (bật/tắt lịch tháng nay do tab kéo ở chân đảm nhận)
         self._overlay = QWidget(self)
         self._overlay.setObjectName("Overlay")
         overlay_layout = QHBoxLayout(self._overlay)
         overlay_layout.setContentsMargins(0, 0, 0, 0)
         overlay_layout.setSpacing(6)
-
-        self._view_btn = QPushButton("THÁNG", self._overlay)
-        self._view_btn.setObjectName("ViewSwitch")
-        self._view_btn.setCursor(Qt.PointingHandCursor)
-        self._view_btn.setToolTip("Chuyển giữa lịch ngày và lịch tháng")
-        self._view_btn.clicked.connect(self.toggle_month)
 
         # Dấu ba chấm dùng U+2026 (có sẵn trong Segoe UI). TUYỆT ĐỐI không dùng
         # các ký tự tượng hình như U+22EF "⋯", U+25B8 "▸", U+2699 "⚙": khi
@@ -346,7 +342,6 @@ class CalendarWidget(QWidget):
         self._menu_btn.setToolTip("Menu nhanh")
         self._menu_btn.clicked.connect(self._show_menu_at_button)
 
-        overlay_layout.addWidget(self._view_btn)
         overlay_layout.addWidget(self._menu_btn)
         self._overlay.adjustSize()
         self._overlay.hide()  # chỉ hiện khi rê chuột lên widget
@@ -354,6 +349,13 @@ class CalendarWidget(QWidget):
         # Tay nắm kéo giãn ở góc dưới phải – luôn hiện để người dùng dễ thấy.
         self._grip = _ResizeGrip(self)
         self._grip.setObjectName("ResizeGrip")
+
+        # Tab kéo bật/tắt lịch tháng – treo dưới mép tờ giấy cuối cùng, đặt
+        # tuyệt đối (không nằm trong layout). Theo dõi vị trí/kích thước của
+        # các tờ giấy để luôn bám đúng mép, kể cả khi layout cập nhật trễ.
+        self._tab = MonthTab(self)
+        self._tab.toggled.connect(self.toggle_month)
+        self._bloc.installEventFilter(self)
 
         # Kết nối view
         self._bloc.quote_clicked.connect(self._on_quote_clicked)
@@ -409,6 +411,7 @@ class CalendarWidget(QWidget):
         self._bloc.apply_theme(visual, scale)
         if self._month is not None:
             self._month.apply_theme(visual, scale)
+        self._tab.apply_theme(visual, scale)
         self._apply_sheet_heights()
         self._layout_overlay()
         self._layout_grip()
@@ -420,6 +423,7 @@ class CalendarWidget(QWidget):
             return self._month
         month = MonthView(self)
         month.hide()
+        month.installEventFilter(self)
         self.layout().insertWidget(2, month)
         self._month = month
 
@@ -526,6 +530,7 @@ class CalendarWidget(QWidget):
         if self._month is not None:
             self._month.setVisible(flag)
         self._month_gap.setVisible(flag)
+        self._tab.set_open(flag)
         self._apply_sheet_heights()
         # Kích hoạt layout trước để cửa sổ nhận kích thước tối thiểu mới (khi
         # đóng lịch tháng, nếu không làm vậy Qt kẹp resize ở mức tối thiểu cũ).
@@ -632,6 +637,9 @@ class CalendarWidget(QWidget):
         self._bloc.apply_theme(visual, content_scale)
         if self._month is not None:
             self._month.apply_theme(visual, content_scale)
+        if hasattr(self, "_tab"):
+            self._tab.apply_theme(visual, content_scale)
+            self._layout_tab()
         qss = styles.build_stylesheet(visual, scale)
         self.setStyleSheet(qss)
         self._apply_overlay_style()
@@ -650,7 +658,7 @@ class CalendarWidget(QWidget):
         radius = styles.px(9, self._scale)
         qss = f"""
         QWidget#Overlay {{ background: transparent; }}
-        QPushButton#ViewSwitch, QPushButton#MenuButton {{
+        QPushButton#MenuButton {{
             color: {theme.ink_soft};
             background: {theme.chip_bg};
             border: 1px solid {theme.line};
@@ -660,7 +668,7 @@ class CalendarWidget(QWidget):
             font-weight: 600;
             letter-spacing: 1px;
         }}
-        QPushButton#ViewSwitch:hover, QPushButton#MenuButton:hover {{
+        QPushButton#MenuButton:hover {{
             color: {theme.accent_ink};
             background: {theme.accent};
             border-color: {theme.accent};
@@ -672,8 +680,7 @@ class CalendarWidget(QWidget):
         }}
         """
         self._overlay.setStyleSheet(qss)
-        for btn in (self._view_btn, self._menu_btn):
-            btn.adjustSize()
+        self._menu_btn.adjustSize()
 
     # ------------------------------------------------------------ hình học
     def apply_settings(self, rebuild_flags: bool = False) -> None:
@@ -811,6 +818,26 @@ class CalendarWidget(QWidget):
         self._overlay.move(max(margin, x), max(margin, y))
         self._overlay.raise_()
         self._layout_grip()
+        self._layout_tab()
+
+    def _layout_tab(self) -> None:
+        """Treo tab kéo dưới mép tờ giấy cuối cùng (bloc, hoặc lịch tháng nếu mở)."""
+        if not hasattr(self, "_tab"):
+            return
+        last = self._sheet_rects()[-1]
+        top = last.bottom() + 1
+        height = max(1, self.height() - top)
+        width = self._tab.sizeHint().width()
+        self._tab.setGeometry(last.center().x() - width // 2 + 1, top, width, height)
+        self._tab.raise_()
+
+    def eventFilter(self, watched, event) -> bool:  # noqa: N802 (Qt API)
+        if event.type() in (QEvent.Type.Move, QEvent.Type.Resize) and watched in (
+            self._bloc,
+            self._month,
+        ):
+            self._layout_tab()
+        return super().eventFilter(watched, event)
 
     # --- hai nút nổi chỉ hiện khi rê chuột lên widget ---------------------
     def enterEvent(self, event) -> None:  # noqa: N802 (Qt API)
