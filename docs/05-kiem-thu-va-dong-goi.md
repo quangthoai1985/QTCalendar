@@ -250,7 +250,9 @@ New → Shortcut → `"C:\Python314\pythonw.exe" "E:\App\QTCalendar\run_qtcalend
 ### 7.2 Đóng gói .exe bằng PyInstaller
 
 ```powershell
-python -m pip install pyinstaller
+# certifi: bộ chứng chỉ gốc đóng gói kèm để kiểm tra cập nhật trên máy chưa có
+# sẵn gốc của GitHub trong kho Windows (thiếu ⇒ CERTIFICATE_VERIFY_FAILED)
+python -m pip install pyinstaller certifi
 
 pyinstaller --noconfirm --windowed --clean --name "QT Calendar" `
   --icon assets\icon.ico `

@@ -3,13 +3,17 @@
 
 import os
 import shutil
+import ssl
+import sys
 import tempfile
 import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+from urllib.request import HTTPSHandler, Request
 
 import pytest
 
+from qtcalendar.core import update_check as uc
 from qtcalendar.core.update_check import (
     AssetInfo,
     InstallPlan,
@@ -165,3 +169,61 @@ class TestUpdaterScript:
                 assert not old_backup.exists()
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+# --------------------------------------------------------------------------- #
+# Hồi quy v1.1.3: máy khác báo CERTIFICATE_VERIFY_FAILED khi kiểm tra cập nhật
+# --------------------------------------------------------------------------- #
+class TestSslContext:
+    """Python chỉ tin chứng chỉ gốc đang có trong kho Windows; Windows lại chỉ tải
+    gốc còn thiếu khi trình duyệt cần ⇒ phải đóng gói kèm bộ gốc certifi."""
+
+    def test_tin_goc_certifi_khi_kho_windows_thieu(self, monkeypatch):
+        pytest.importorskip("certifi")
+        # Kho Windows rỗng: như máy chưa có gốc USERTrust ECC của api.github.com
+        monkeypatch.setattr(
+            uc.ssl, "create_default_context",
+            lambda *a, **k: ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT),
+        )
+        ctx = uc._ssl_context()
+        names = {dict(x[0] for x in c["subject"]).get("commonName") for c in ctx.get_ca_certs()}
+        assert "USERTrust ECC Certification Authority" in names  # api.github.com
+        assert "ISRG Root X1" in names  # release-assets.githubusercontent.com
+        assert ctx.verify_mode == ssl.CERT_REQUIRED
+        assert ctx.check_hostname
+
+    def test_van_giu_kho_windows(self, monkeypatch):
+        """Chứng chỉ của diệt virus/tường lửa cơ quan nằm trong kho Windows."""
+        calls = []
+        real = ssl.create_default_context
+        monkeypatch.setattr(
+            uc.ssl, "create_default_context",
+            lambda *a, **k: calls.append(1) or real(*a, **k),
+        )
+        uc._ssl_context()
+        assert calls
+
+    def test_thieu_certifi_van_dung_kho_windows(self, monkeypatch):
+        monkeypatch.setitem(sys.modules, "certifi", None)  # import certifi → ImportError
+        ctx = uc._ssl_context()
+        assert isinstance(ctx, ssl.SSLContext)
+        assert ctx.verify_mode == ssl.CERT_REQUIRED
+
+    def test_urlopen_dung_ngu_canh_ssl_rieng(self, monkeypatch):
+        ctx = ssl.create_default_context()
+        monkeypatch.setattr(uc, "_ssl_context", lambda: ctx)
+        handlers = []
+
+        class _Opener:
+            def open(self, req, timeout):
+                return "resp"
+
+        def _build_opener(*args):
+            handlers.extend(args)
+            return _Opener()
+
+        monkeypatch.setattr(uc, "build_opener", _build_opener)
+        assert uc._urlopen(Request("https://api.github.com/x")) == "resp"
+        https = [h for h in handlers if isinstance(h, HTTPSHandler)]
+        assert https and https[0]._context is ctx
+        assert uc._StrictRedirectHandler in handlers

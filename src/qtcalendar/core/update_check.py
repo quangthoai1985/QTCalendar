@@ -11,6 +11,9 @@ Luồng hoạt động:
    `DisplayVersion` trong Registry («Apps & features») rồi mở lại ứng dụng. Lần khởi động sau
    `cleanup_previous_update()` xoá `.old`.
 4. Nếu đang chạy từ mã nguồn (source code): chỉ thông báo có bản mới và mở trình duyệt tải về.
+
+Mọi kết nối HTTPS xác thực bằng `_ssl_context()`: kho chứng chỉ Windows + bộ gốc `certifi`
+đóng gói kèm (máy chưa có sẵn gốc của GitHub vẫn cập nhật được).
 """
 
 from __future__ import annotations
@@ -21,6 +24,7 @@ import json
 import os
 import re
 import shutil
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -31,7 +35,7 @@ from pathlib import Path
 from typing import Any, Callable, List, NamedTuple, Optional
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, HTTPSHandler, Request, build_opener
 
 from .. import APP_ID, APP_NAME, __github_repo__, __version__
 from .config import data_dir
@@ -235,8 +239,26 @@ def validate_url(url: str, allowed_hosts: frozenset[str]) -> None:
         raise UpdateError(f"Máy chủ không nằm trong danh sách cho phép: {host}")
 
 
+def _ssl_context() -> ssl.SSLContext:
+    """Ngữ cảnh SSL: kho chứng chỉ Windows + bộ gốc `certifi` đóng gói kèm.
+
+    Python chỉ tin chứng chỉ gốc ĐANG có trong kho Windows, mà Windows chỉ tải gốc
+    còn thiếu khi trình duyệt cần tới ⇒ máy chưa từng mở GitHub bằng Edge báo
+    `CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate`. Vẫn giữ kho
+    Windows vì chứng chỉ của phần mềm diệt virus/tường lửa cơ quan nằm ở đó.
+    """
+    ctx = ssl.create_default_context()
+    try:
+        import certifi
+
+        ctx.load_verify_locations(cafile=certifi.where())
+    except (ImportError, OSError, ssl.SSLError):
+        pass  # chạy từ mã nguồn chưa cài certifi: chỉ dùng kho Windows
+    return ctx
+
+
 def _urlopen(req: Request, timeout: float = API_TIMEOUT) -> Any:
-    opener = build_opener(_StrictRedirectHandler)
+    opener = build_opener(_StrictRedirectHandler, HTTPSHandler(context=_ssl_context()))
     return opener.open(req, timeout=timeout)
 
 
