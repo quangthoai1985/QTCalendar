@@ -42,10 +42,14 @@ def qapp():
 
 
 @pytest.fixture()
-def widget(qapp):
+def widget(qapp, monkeypatch):
     settings = Settings()
     settings.x, settings.y = 100, 100
     view = CalendarWidget(settings)
+    # Màn hình ``offscreen`` chỉ 800×800 – nhỏ hơn màn hình thật, khiến lịch
+    # tháng mở ra bị thu nhỏ cho vừa. Giả lập vùng làm việc của màn hình
+    # Full HD; các test về vừa màn hình tự đặt kích thước riêng.
+    monkeypatch.setattr(view, "_available_rect", lambda: QRect(0, 0, 1920, 1040))
     view.resize(settings.width, settings.height)
     view.show()          # nền tảng offscreen: không mở cửa sổ thật
     qapp.processEvents()
@@ -309,3 +313,63 @@ def test_doi_theme_khi_mo_cap_nhat_tab_va_lich_thang(widget):
     assert widget._month._theme.name == "dem_sao"
     widget.set_opacity(0.4)
     assert alpha_of(widget._tab._theme.paper) == pytest.approx(0.4, abs=0.02)
+
+
+# --------------------------------------------------------------------------- #
+# Kéo giãn / vừa màn hình khi lịch tháng đang mở
+# --------------------------------------------------------------------------- #
+def _gia_man_hinh(monkeypatch, view, rect):
+    monkeypatch.setattr(view, "_available_rect", lambda: QRect(*rect))
+
+
+def test_keo_khi_mo_luu_kich_thuoc_bloc(widget):
+    widget.set_show_month(True)
+    widget.begin_resize(QPoint(0, 0))
+    widget.drag_resize(QPoint(60, 40))
+    widget.end_resize()
+    assert widget._settings.width == BASE_WIDTH + 60
+    assert widget._settings.height == BASE_HEIGHT + 40
+    assert widget.height() == widget._settings.height + month_extra_height(
+        widget.width(), widget._settings.scale
+    )
+
+
+def test_cham_day_man_hinh_thi_doi_len(widget, monkeypatch):
+    _gia_man_hinh(monkeypatch, widget, (0, 0, 1920, 1040))
+    widget.move(100, 600)
+    widget.set_show_month(True)
+    assert widget.pos().y() + widget.height() - SHADOW_MARGIN <= 1040
+    assert widget._settings.width == BASE_WIDTH  # chỉ dời, không thu nhỏ
+
+
+def test_cao_hon_man_hinh_thi_thu_nho(widget, monkeypatch):
+    _gia_man_hinh(monkeypatch, widget, (0, 0, 1366, 700))
+    widget.move(100, 0)
+    widget.set_show_month(True)
+    assert widget.height() - 2 * SHADOW_MARGIN <= 700
+    assert widget._settings.width < BASE_WIDTH
+    assert widget._settings.width / widget._settings.height == pytest.approx(
+        BASE_WIDTH / BASE_HEIGHT, rel=0.03
+    )
+
+
+def test_dat_lai_kich_thuoc_khi_mo(widget):
+    widget.set_show_month(True)
+    widget.resize(500, 1200)
+    widget.reset_size()
+    assert widget._settings.show_month is True
+    assert (widget._settings.width, widget._settings.height) == (BASE_WIDTH, BASE_HEIGHT)
+    assert widget.height() == BASE_HEIGHT + month_extra_height(
+        BASE_WIDTH, widget._settings.scale
+    )
+
+
+def test_khoi_dong_mo_san_gan_day_van_vua_man_hinh(qapp, monkeypatch):
+    s = Settings(show_month=True, x=100, y=900)
+    w = CalendarWidget(s)
+    try:
+        monkeypatch.setattr(w, "_available_rect", lambda: QRect(0, 0, 1920, 1040))
+        w.restore_position()  # đúng thứ tự AppController.start()
+        assert w.pos().y() + w.height() - SHADOW_MARGIN <= 1040
+    finally:
+        w.deleteLater()

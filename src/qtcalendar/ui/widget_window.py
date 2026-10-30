@@ -537,6 +537,8 @@ class CalendarWidget(QWidget):
         self.layout().activate()
         self._resize_to_settings()
         self.layout().activate()
+        if flag and self.isVisible():
+            self._fit_into_screen()
         self._layout_overlay()
         self.update()
         self.settings_changed.emit()
@@ -745,22 +747,24 @@ class CalendarWidget(QWidget):
     def begin_resize(self, global_pos: QPoint) -> None:
         """Bắt đầu kéo tay nắm ở góc (gọi từ :class:`_ResizeGrip`)."""
         self._resizing = True
-        self._resize_start_size = QSize(self.width(), self.height())
+        self._resize_start_size = QSize(self.width(), self.bloc_height())
         self._resize_start_pos = QPoint(global_pos)
         self._update_overlay_visibility(True)
 
     def drag_resize(self, global_pos: QPoint) -> None:
-        """Kéo tay nắm: đổi kích thước theo độ dịch chuột, có kẹp giới hạn."""
+        """Kéo tay nắm: đổi kích thước theo độ dịch chuột, có kẹp giới hạn.
+
+        Kéo ngang đổi bề rộng (cả hai lịch to/nhỏ theo); kéo dọc chỉ đổi chiều
+        cao **bloc** – phần lịch tháng luôn tính lại từ bề rộng.
+        """
         if not self._resizing:
             return
         delta = global_pos - self._resize_start_pos
         min_size = self._min_size()
-        screen = self.screen() or QGuiApplication.primaryScreen()
-        max_w, max_h = MAX_WIDTH, MAX_HEIGHT
-        if screen is not None:
-            avail = screen.availableGeometry()
+        avail = self._available_rect()
+        max_w = MAX_WIDTH
+        if avail is not None:
             max_w = min(max_w, max(MIN_WIDTH, avail.width() - 2 * SHADOW_MARGIN))
-            max_h = min(max_h, max(MIN_HEIGHT, avail.height() - 2 * SHADOW_MARGIN))
         width = _clamp_size(
             self._resize_start_size.width() + delta.x(), min_size.width(), max_w
         )
@@ -768,10 +772,21 @@ class CalendarWidget(QWidget):
         # sau khi đã áp chiều cao dải đáy cho bề rộng mới.
         self._apply_sheet_heights(width)
         self.layout().activate()
-        min_size = self._min_size()
-        height = _clamp_size(
-            self._resize_start_size.height() + delta.y(), min_size.height(), max_h
+        extra = (
+            month_extra_height(width, self._settings.scale)
+            if self._settings.show_month
+            else 0
         )
+        min_bloc = max(MIN_HEIGHT, self._min_size().height() - extra)
+        max_bloc = MAX_HEIGHT
+        if avail is not None:
+            max_bloc = min(
+                max_bloc, max(min_bloc, avail.height() - 2 * SHADOW_MARGIN - extra)
+            )
+        bloc_h = _clamp_size(
+            self._resize_start_size.height() + delta.y(), min_bloc, max_bloc
+        )
+        height = bloc_h + extra
         if width != self.width() or height != self.height():
             self.resize(width, height)
 
@@ -785,8 +800,10 @@ class CalendarWidget(QWidget):
         self.settings_changed.emit()
 
     def reset_size(self) -> None:
-        """Trả widget về kích thước chuẩn 344×468."""
-        self.resize(BASE_WIDTH, BASE_HEIGHT)
+        """Trả bloc về kích thước chuẩn 344×468 (lịch tháng giữ nguyên trạng thái)."""
+        self._settings.width = BASE_WIDTH
+        self._settings.height = BASE_HEIGHT
+        self._resize_to_settings()
         self._clamp_into_screen()
         self._store_geometry()
         self.settings_changed.emit()
@@ -1048,11 +1065,46 @@ class CalendarWidget(QWidget):
             return
         super().mouseDoubleClickEvent(event)
 
-    def _clamp_into_screen(self) -> None:
+    def _available_rect(self) -> QRect | None:
+        """Vùng làm việc (trừ taskbar) của màn hình chứa widget."""
         screen = self.screen() or QGuiApplication.primaryScreen()
         if screen is None:
+            return None
+        return screen.availableGeometry()
+
+    def _fit_into_screen(self) -> None:
+        """Thu nhỏ (nếu cao hơn màn hình) rồi dời widget vào vùng làm việc.
+
+        Chỉ cần khi lịch tháng đang mở: bề rộng và chiều cao bloc cùng giảm
+        theo một tỉ lệ cho tới khi cả hai lịch vừa chiều cao màn hình. Kích
+        thước mới được lưu lại.
+        """
+        avail = self._available_rect()
+        if avail is None:
             return
-        avail = screen.availableGeometry()
+        limit = avail.height()
+        if self.height() - 2 * SHADOW_MARGIN > limit:
+            w0, h0 = self._settings.width, self._settings.height
+            scale = self._settings.scale
+            w, h = w0, h0
+            factor = 1.0
+            while factor > 0.3:
+                factor -= 0.01
+                w, h = int(round(w0 * factor)), int(round(h0 * factor))
+                if w <= MIN_WIDTH or h <= MIN_HEIGHT:
+                    w, h = max(w, MIN_WIDTH), max(h, MIN_HEIGHT)
+                    break
+                if h + month_extra_height(w, scale) <= limit:
+                    break
+            self._settings.width, self._settings.height = w, h
+            self._resize_to_settings()
+            self._store_geometry()
+        self._clamp_into_screen()
+
+    def _clamp_into_screen(self) -> None:
+        avail = self._available_rect()
+        if avail is None:
+            return
         card = self._card_rect().translated(self.pos())
         dx = dy = 0
         if card.left() < avail.left():
@@ -1074,14 +1126,15 @@ class CalendarWidget(QWidget):
         toạ độ màn hình thật.
         """
         pos = self.pos()
-        size_w, size_h = self.width(), self.height()
+        size_w, size_h = self.width(), self.bloc_height()
         if self._pinned:
             from ..platform import win32
 
             rect = win32.get_window_rect(int(self.winId()))
             if rect:
                 pos = QPoint(rect[0], rect[1])
-                size_w, size_h = rect[2] - rect[0], rect[3] - rect[1]
+                size_w = rect[2] - rect[0]
+                size_h = rect[3] - rect[1] - self.extra_height()
         self._settings.x = int(pos.x())
         self._settings.y = int(pos.y())
         self._settings.width = int(size_w)
@@ -1106,7 +1159,10 @@ class CalendarWidget(QWidget):
             self.move_to_default_position()
             return
         self.move(x, y)
-        self._clamp_into_screen()
+        if self._settings.show_month:
+            self._fit_into_screen()
+        else:
+            self._clamp_into_screen()
         self._store_geometry()
 
     # -------------------------------------------------------------- menu
@@ -1190,7 +1246,7 @@ class CalendarWidget(QWidget):
         act_reset.triggered.connect(self.reset_position)
         act_size = menu.addAction(f"Đặt lại kích thước ({BASE_WIDTH}×{BASE_HEIGHT})")
         act_size.setEnabled(
-            (self.width(), self.height()) != (BASE_WIDTH, BASE_HEIGHT)
+            (self._settings.width, self._settings.height) != (BASE_WIDTH, BASE_HEIGHT)
         )
         act_size.triggered.connect(self.reset_size)
         act_settings = menu.addAction("Cài đặt…")
