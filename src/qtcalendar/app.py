@@ -151,6 +151,7 @@ class AppController(QObject):
         if tray is None:
             return
         tray.toggled_visibility.connect(self.toggle_widget)
+        tray.show_requested.connect(self.show_widget)
         tray.settings_requested.connect(self.open_settings)
         tray.quit_requested.connect(self.quit_app)
         tray.month_toggled.connect(w.set_show_month)

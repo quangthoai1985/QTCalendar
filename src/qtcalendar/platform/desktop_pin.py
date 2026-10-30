@@ -267,11 +267,15 @@ def send_to_bottom(hwnd: int) -> None:
     update_z_order(hwnd)
 
 
-def handle_windowposchanging(lparam: int) -> bool:
+def handle_windowposchanging(lparam: int, allow_hide: bool = False) -> bool:
     """Xử lý thông điệp WM_WINDOWPOSCHANGING theo cơ chế Rainmeter.
 
     1. Ngăn cản click chuột làm nhảy Z-order lên đỉnh (SWP_NOZORDER).
     2. Chống dời toạ độ (-32000, -32000) và cờ ẩn SWP_HIDEWINDOW khi Win + D.
+
+    ``allow_hide=True`` khi chính ứng dụng đang ẩn widget (khay/menu): giữ
+    nguyên SWP_HIDEWINDOW, nếu không Qt coi cửa sổ đã ẩn (ngừng vẽ lại) trong
+    khi Windows vẫn hiện nó.
     """
     if not IS_WINDOWS or not lparam:
         return False
@@ -292,7 +296,7 @@ def handle_windowposchanging(lparam: int) -> bool:
             modified = True
 
         # Chống bị giấu bởi SWP_HIDEWINDOW khi Show Desktop
-        if pos.flags & win32.SWP_HIDEWINDOW:
+        if pos.flags & win32.SWP_HIDEWINDOW and not allow_hide:
             pos.flags &= ~win32.SWP_HIDEWINDOW
             pos.flags |= win32.SWP_SHOWWINDOW
             modified = True

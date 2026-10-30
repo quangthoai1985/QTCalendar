@@ -401,10 +401,15 @@ class CalendarWidget(QWidget):
         """Độ mờ áp vào **màu giấy** (nền trong suốt, chữ đục 100%)."""
         return float(self._settings.opacity)
 
-    def _apply_content_scale(self) -> None:
-        """Áp hệ số phóng mới cho các view đang có (gọi có debounce)."""
+    def _apply_content_scale(self, force: bool = False) -> None:
+        """Áp hệ số phóng mới cho các view đang có (gọi có debounce).
+
+        ``force=True`` áp lại kể cả khi hệ số không đổi: lịch tháng tạo lười
+        hoặc view được theme lúc cửa sổ chưa kịp đổi kích thước có thể đang
+        mang hệ số cũ khác ``_content_scale_applied``.
+        """
         scale = self.content_scale()
-        if abs(scale - self._content_scale_applied) < 0.01:
+        if not force and abs(scale - self._content_scale_applied) < 0.01:
             return
         self._content_scale_applied = scale
         visual = self._visual()
@@ -542,6 +547,9 @@ class CalendarWidget(QWidget):
         self.layout().activate()
         if flag and self.isVisible():
             self._fit_into_screen()
+        # Lịch tháng vừa tạo được theme khi cửa sổ chưa cao thêm (hệ số tối
+        # thiểu) – áp lại theo kích thước mới.
+        self._apply_content_scale(force=True)
         self._layout_overlay()
         self.update()
         self.settings_changed.emit()
@@ -723,6 +731,9 @@ class CalendarWidget(QWidget):
 
     def showEvent(self, event) -> None:  # noqa: N802 (Qt API)
         super().showEvent(event)
+        # Lúc ẩn, resizeEvent bị hoãn nên hệ số phóng có thể đã cũ; áp ngay
+        # trước khung hình đầu thay vì chờ debounce 90 ms.
+        self._apply_content_scale(force=True)
         self._layout_overlay()
         self._layout_grip()
 
@@ -993,7 +1004,8 @@ class CalendarWidget(QWidget):
 
     def _watch_pin(self) -> None:
         """Watchdog định kỳ: duy trì cửa sổ ở vị trí chuẩn theo cơ chế Rainmeter."""
-        if self._settings.placement != "desktop":
+        # Người dùng đã ẩn lịch: không ép hiện ở mức Win32 (Qt sẽ không vẽ nó).
+        if self._settings.placement != "desktop" or self.isHidden():
             return
 
         from ..platform import desktop_pin, win32
@@ -1024,7 +1036,11 @@ class CalendarWidget(QWidget):
             try:
                 msg = wintypes.MSG.from_address(int(message))
                 if msg.message == win32.WM_WINDOWPOSCHANGING:
-                    if desktop_pin.handle_windowposchanging(msg.lParam):
+                    # ``hide()`` của Qt đặt WA_WState_Hidden trước khi gọi
+                    # ShowWindow(SW_HIDE) ⇒ isHidden() phân biệt app tự ẩn với Win + D.
+                    if desktop_pin.handle_windowposchanging(
+                        msg.lParam, allow_hide=self.isHidden()
+                    ):
                         return True, 0
                 elif msg.message == win32.WM_SYSCOMMAND:
                     if (msg.wParam & 0xFFF0) == win32.SC_MINIMIZE:

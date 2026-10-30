@@ -459,3 +459,89 @@ def test_luu_kich_thuoc_khi_ghim_dung_don_vi_logic(widget, monkeypatch):
     widget._store_geometry()
     widget._pinned = False
     assert (widget._settings.width, widget._settings.height) == (BASE_WIDTH, BASE_HEIGHT)
+
+
+# --------------------------------------------------------------------------- #
+# Hồi quy v1.1.1: cỡ chữ & ẩn/hiện khi ghim Desktop
+# --------------------------------------------------------------------------- #
+def test_mo_lich_thang_lan_dau_dung_he_so_phong(qapp, monkeypatch):
+    """Lịch tháng tạo lười lúc cửa sổ chưa kịp cao thêm ⇒ không được kẹt ở 0,5."""
+    s = Settings(width=466, height=611, x=100, y=20)
+    w = CalendarWidget(s)
+    try:
+        monkeypatch.setattr(w, "_available_rect", lambda: QRect(0, 0, 1920, 1168))
+        w.show()
+        qapp.processEvents()
+        w.set_show_month(True)
+        assert w._month._scale == pytest.approx(w.content_scale(), abs=0.01)
+        assert w._bloc._scale == pytest.approx(w.content_scale(), abs=0.01)
+    finally:
+        w.deleteLater()
+
+
+def test_khoi_dong_an_roi_hien_ve_ngay_dung_co_chu(qapp, monkeypatch):
+    """Khung hình đầu tiên sau ``show()`` phải đúng cỡ chữ, không chờ debounce 90 ms."""
+    s = Settings(show_month=True, width=466, height=611, x=100, y=20, hidden=True)
+    w = CalendarWidget(s)
+    try:
+        monkeypatch.setattr(w, "_available_rect", lambda: QRect(0, 0, 1920, 1168))
+        w.resize(s.width, s.height + w.extra_height())  # như AppController
+        w.show()  # chưa processEvents: timer debounce chưa thể chạy
+        expected = w.content_scale()
+        assert expected > 1.2
+        assert w._bloc._scale == pytest.approx(expected, abs=0.01)
+        assert w._month._scale == pytest.approx(expected, abs=0.01)
+    finally:
+        w.deleteLater()
+
+
+def test_watchdog_ghim_khong_hien_cua_so_dang_an(widget, monkeypatch):
+    """Widget người dùng đã ẩn thì watchdog không được ép hiện ở mức Win32."""
+    from qtcalendar.platform import desktop_pin, win32
+
+    widget._settings.placement = "desktop"
+    widget.hide()
+    shown = []
+    monkeypatch.setattr(win32, "is_window", lambda hwnd: True)
+    monkeypatch.setattr(win32, "is_window_visible", lambda hwnd: False)
+    monkeypatch.setattr(win32, "show_window", lambda hwnd, cmd: shown.append(cmd))
+    monkeypatch.setattr(desktop_pin, "is_pinned", lambda hwnd: True)
+    monkeypatch.setattr(desktop_pin, "update_z_order", lambda hwnd: None)
+    widget._watch_pin()
+    assert shown == []
+
+
+def _windowposchanging(flags: int):
+    import ctypes
+    from ctypes import wintypes
+
+    from qtcalendar.platform import win32
+
+    pos = win32.WINDOWPOS()
+    pos.x, pos.y, pos.flags = 100, 100, flags
+    msg = wintypes.MSG()
+    msg.message = win32.WM_WINDOWPOSCHANGING
+    msg.lParam = ctypes.addressof(pos)
+    return pos, msg
+
+
+def test_ghim_desktop_cho_phep_chinh_app_an_cua_so(widget):
+    """``hide()`` của app (khay/menu) phải ẩn thật, chỉ chặn ẩn do Win + D."""
+    import ctypes
+
+    from qtcalendar.platform import win32
+
+    widget._pinned = True
+    try:
+        widget.hide()
+        pos, msg = _windowposchanging(win32.SWP_HIDEWINDOW)
+        widget.nativeEvent(b"windows_generic_MSG", ctypes.addressof(msg))
+        assert pos.flags & win32.SWP_HIDEWINDOW
+        assert not pos.flags & win32.SWP_SHOWWINDOW
+
+        widget.show()
+        pos, msg = _windowposchanging(win32.SWP_HIDEWINDOW)
+        widget.nativeEvent(b"windows_generic_MSG", ctypes.addressof(msg))
+        assert not pos.flags & win32.SWP_HIDEWINDOW  # Win + D: vẫn chặn
+    finally:
+        widget._pinned = False

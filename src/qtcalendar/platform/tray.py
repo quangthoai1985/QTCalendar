@@ -13,7 +13,8 @@ Hợp đồng API
     ==========================  ==============================  =====================
     Tín hiệu                    Tham số                         Ý nghĩa
     ==========================  ==============================  =====================
-    ``toggled_visibility``      –                               ẩn/hiện widget
+    ``toggled_visibility``      –                               ẩn/hiện widget (menu)
+    ``show_requested``          –                               hiện widget (bấm icon)
     ``settings_requested``      –                               mở hộp thoại cài đặt
     ``quit_requested``          –                               thoát ứng dụng
     ``month_toggled``           ``bool``                        bật/tắt lịch tháng
@@ -181,6 +182,7 @@ class TrayIcon(QObject):
     """Icon khay hệ thống + menu ngữ cảnh cho QT Calendar."""
 
     toggled_visibility = Signal()
+    show_requested = Signal()
     settings_requested = Signal()
     quit_requested = Signal()
     month_toggled = Signal(bool)
@@ -390,13 +392,17 @@ class TrayIcon(QObject):
             self.quit_requested.emit()
 
     def _on_activated(self, reason) -> None:
-        """Click/đúp chuột vào icon khay → ẩn/hiện cửa sổ."""
+        """Click/đúp chuột vào icon khay → hiện cửa sổ (ẩn qua menu).
+
+        Không bật/tắt ở đây: trên Windows, nháy đúp phát ``Trigger`` rồi
+        ``DoubleClick`` liên tiếp ⇒ lịch vừa hiện đã bị ẩn ngay.
+        """
         try:
             if self._syncing:
                 return
             enum = QSystemTrayIcon.ActivationReason
             if reason in (enum.Trigger, enum.DoubleClick):
-                self.toggled_visibility.emit()
+                self.show_requested.emit()
         except Exception:  # pragma: no cover - enum khác bản Qt
             log.debug("_on_activated bỏ qua", exc_info=True)
 

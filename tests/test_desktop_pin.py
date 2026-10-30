@@ -40,6 +40,20 @@ def test_handle_windowposchanging_win_d_hidewindow():
     assert wp.flags & win32.SWP_NOZORDER
 
 
+def test_handle_windowposchanging_allow_hide_keeps_hidewindow():
+    """Khi chính ứng dụng ẩn widget (allow_hide), không đổi SWP_HIDEWINDOW thành hiện."""
+    wp = win32.WINDOWPOS()
+    wp.x = 100
+    wp.y = 100
+    wp.flags = win32.SWP_HIDEWINDOW
+
+    lparam = ctypes.addressof(wp)
+    desktop_pin.handle_windowposchanging(lparam, allow_hide=True)
+
+    assert wp.flags & win32.SWP_HIDEWINDOW
+    assert not (wp.flags & win32.SWP_SHOWWINDOW)
+
+
 def test_handle_windowposchanging_normal_click_keeps_no_zorder():
     """Khi click chuột hoặc kéo thả thường (không có SWP_NOSENDCHANGING), giữ nguyên Z-order."""
     wp = win32.WINDOWPOS()
