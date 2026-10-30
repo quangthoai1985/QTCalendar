@@ -21,7 +21,7 @@ __all__ = [
     "__description__",
 ]
 
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 
 #: Tên hiển thị (taskbar, khay hệ thống, hộp thoại).
 APP_NAME = "QT Calendar"
